@@ -1,0 +1,152 @@
+package com.example.loot;
+
+import com.example.loot.Model.*;
+import com.example.loot.Repository.*;
+import com.example.loot.Service.EmailService;
+import com.example.loot.Security.ImageValidation;
+import org.junit.jupiter.api.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import tools.jackson.databind.ObjectMapper;
+import java.time.Instant;
+import java.util.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+class WebSecurityTests {
+    @Autowired MockMvc mvc;
+    @Autowired ObjectMapper json;
+    @Autowired PasswordEncoder encoder;
+    @Autowired UserRepository users;
+    @Autowired PantryItemRepository pantry;
+    @Autowired IngredientRepository ingredients;
+    @Autowired UserRecipeRepository recipes;
+    @Autowired UserRecIngRepository recipeIngredients;
+    @Autowired SystemRecipeRepository systems;
+    @Autowired SystemRecIngRepository systemIngredients;
+    @Autowired CookingHistoryRepository history;
+    @Autowired CookingHisIngRepository historyIngredients;
+    @MockitoBean EmailService email;
+    User alice,bob,admin;
+    final String password="Kitchen12!";
+
+    @BeforeEach void setup() {
+        historyIngredients.deleteAll();history.deleteAll();recipeIngredients.deleteAll();recipes.deleteAll();systemIngredients.deleteAll();systems.deleteAll();pantry.deleteAll();ingredients.deleteAll();users.deleteAll();
+        alice=user("Alice","USER");bob=user("Bob","USER");admin=user("Admin","ADMIN");
+    }
+    User user(String name,String role){var u=new User();u.setName(name);u.setEmail(name.toLowerCase()+UUID.randomUUID()+"@example.test");u.setPhoneNumber("0500000000");u.setPassword(encoder.encode(password));u.setRole(role);return users.save(u);}
+    MockHttpSession login(User u) throws Exception {
+        var result=mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",u.getEmail(),"password",password)))).andExpect(status().isOk()).andExpect(jsonPath("$.password").doesNotExist()).andExpect(jsonPath("$.resetCodeHash").doesNotExist()).andReturn();
+        return (MockHttpSession)result.getRequest().getSession(false);
+    }
+    Ingredient ingredient(){var i=new Ingredient();i.setName("Rice");i.setUnit("g");return ingredients.save(i);}
+    PantryItem stock(User u,Ingredient i,double quantity){var p=new PantryItem();p.setUserId(u.getId());p.setIngredientId(i.getId());p.setQuantity(quantity);p.setLowStockThreshold(50.0);return pantry.save(p);}
+    SystemRecipe system(Ingredient i){var r=new SystemRecipe();r.setName("Rice Bowl");r.setDescription("");r.setInstructions("Cook rice until tender.");r.setCategory("Dinner");r.setImageUrl("https://example.test/rice.png");r=systems.save(r);var link=new SystemRecIng();link.setSystemRecipeId(r.getId());link.setIngredientId(i.getId());link.setRequiredQuantity(100.0);systemIngredients.save(link);return r;}
+
+    @Test void anonymousCsrfAndRoleBoundaries() throws Exception {
+        mvc.perform(get("/api/v1/pantry/get")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/user/login").contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        var session=login(alice);
+        mvc.perform(get("/api/v1/admin/overview").session(session)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/system/add").session(session).with(csrf()).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/user/get").session(session)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/admin/overview").session(login(admin))).andExpect(status().isOk());
+        mvc.perform(options("/api/v1/user/me").header("Origin","https://evil.example").header("Access-Control-Request-Method","GET")).andExpect(status().isForbidden());
+        mvc.perform(options("/api/v1/user/me").header("Origin","http://localhost:5173").header("Access-Control-Request-Method","GET")).andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Origin","http://localhost:5173"));
+    }
+    @Test void realCsrfTokenSessionRotationAndLogout() throws Exception {
+        var tokenResponse=mvc.perform(get("/api/v1/user/csrf")).andExpect(status().isOk()).andReturn();
+        var session=(MockHttpSession)tokenResponse.getRequest().getSession(false);String oldId=session.getId();
+        var token=json.readTree(tokenResponse.getResponse().getContentAsString());
+        mvc.perform(post("/api/v1/user/login").session(session).header(token.get("headerName").asText(),token.get("token").asText()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password",password)))).andExpect(status().isOk());
+        assertNotEquals(oldId,session.getId());
+        mvc.perform(get("/api/v1/user/me").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.email").value(alice.getEmail()));
+        mvc.perform(post("/api/v1/user/logout").session(session).with(csrf())).andExpect(status().isOk());
+        assertTrue(session.isInvalid());
+    }
+    @Test void registrationCannotChooseRoleOrIdAndHashesPassword() throws Exception {
+        String address="new"+UUID.randomUUID()+"@example.test";
+        mvc.perform(post("/api/v1/user/add").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("id",alice.getId(),"name","New User","email",address,"password",password,"phoneNumber","0500000000","role","ADMIN")))).andExpect(status().isOk());
+        var u=users.findUserByEmail(address);assertEquals("USER",u.getRole());assertNotEquals(alice.getId(),u.getId());assertNotEquals(password,u.getPassword());assertTrue(encoder.matches(password,u.getPassword()));
+    }
+    @Test void pantryOwnershipCrudAndMassAssignment() throws Exception {
+        var i=ingredient();var other=stock(bob,i,300);var session=login(alice);
+        mvc.perform(get("/api/v1/pantry/get").session(session)).andExpect(status().isOk()).andExpect(content().json("[]"));
+        String body=json.writeValueAsString(Map.of("id",other.getId(),"userId",bob.getId(),"ingredientId",i.getId(),"quantity",200,"lowStockThreshold",20));
+        mvc.perform(post("/api/v1/pantry/add").session(session).with(csrf()).contentType("application/json").content(body)).andExpect(status().isOk());
+        var own=pantry.findPantryItemByUserIdAndIngredientId(alice.getId(),i.getId());assertNotNull(own);assertEquals(300,pantry.findById(other.getId()).orElseThrow().getQuantity());
+        mvc.perform(put("/api/v1/pantry/update/"+other.getId()).session(session).with(csrf()).contentType("application/json").content(body)).andExpect(status().isForbidden());
+        mvc.perform(delete("/api/v1/pantry/delete/"+other.getId()).session(session).with(csrf())).andExpect(status().isForbidden());
+        mvc.perform(put("/api/v1/pantry/update/"+own.getId()).session(session).with(csrf()).contentType("application/json").content(body)).andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/pantry/delete/"+own.getId()).session(session).with(csrf())).andExpect(status().isOk());
+    }
+    @Test void userRecipeCrudAndNestedOwnership() throws Exception {
+        var i=ingredient();var session=login(alice);var otherSession=login(bob);
+        String body=json.writeValueAsString(Map.of("userId",bob.getId(),"name","My Rice","description","Lunch","category","Lunch","instructions","Cook carefully"));
+        var response=mvc.perform(post("/api/v1/recipe/add").session(session).with(csrf()).contentType("application/json").content(body)).andExpect(status().isOk()).andReturn();
+        int id=json.readTree(response.getResponse().getContentAsString()).get("id").asInt();assertEquals(alice.getId(),recipes.findById(id).orElseThrow().getUserId());
+        String ing=json.writeValueAsString(Map.of("userRecipeId",id,"ingredientId",i.getId(),"requiredQuantity",100));
+        mvc.perform(post("/api/v1/recipe/ingredient/add").session(otherSession).with(csrf()).contentType("application/json").content(ing)).andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/recipe/ingredient/add").session(session).with(csrf()).contentType("application/json").content(ing)).andExpect(status().isOk());
+        int link=recipeIngredients.findUserRecIngByUserRecipeId(id).getFirst().getId();
+        mvc.perform(delete("/api/v1/recipe/ingredient/delete/"+link).session(otherSession).with(csrf())).andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/user/cook/user/"+id).session(otherSession)).andExpect(status().isBadRequest());
+        mvc.perform(put("/api/v1/recipe/update/"+id).session(otherSession).with(csrf()).contentType("application/json").content(body)).andExpect(status().isForbidden());
+        mvc.perform(put("/api/v1/recipe/update/"+id).session(session).with(csrf()).contentType("application/json").content(body)).andExpect(status().isOk());
+        mvc.perform(delete("/api/v1/recipe/delete/"+id).session(session).with(csrf())).andExpect(status().isOk());assertTrue(recipeIngredients.findUserRecIngByUserRecipeId(id).isEmpty());
+    }
+    @Test void cookConvertRepeatAndMissingQuantities() throws Exception {
+        var i=ingredient();var r=system(i);var p=stock(alice,i,250);var session=login(alice);
+        mvc.perform(get("/api/v1/user/availability/system").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].canCook").value(true));
+        mvc.perform(post("/api/v1/user/system/"+r.getId()+"/convert").session(session).with(csrf())).andExpect(status().isOk());
+        assertEquals(r.getImageUrl(),recipes.findUserRecipeByUserId(alice.getId()).getFirst().getImageUrl());
+        mvc.perform(post("/api/v1/user/cook/system/"+r.getId()+"/done").session(session).with(csrf())).andExpect(status().isOk());
+        assertEquals(150,pantry.findById(p.getId()).orElseThrow().getQuantity());var h=history.findCookingHistoryByUserId(alice.getId()).getFirst();assertEquals(1,historyIngredients.findCookingHisIngByCookingHistoryId(h.getId()).size());
+        mvc.perform(get("/api/v1/user/history/"+h.getId()+"/repeat").session(login(bob))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/history/"+h.getId()+"/repeat/done").session(session).with(csrf())).andExpect(status().isOk());
+        assertEquals(50,pantry.findById(p.getId()).orElseThrow().getQuantity());assertEquals(2,history.findCookingHistoryByUserId(alice.getId()).size());
+        mvc.perform(get("/api/v1/user/history/"+h.getId()+"/repeat").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.missing[0].missing").value(50));
+        mvc.perform(post("/api/v1/user/cook/system/"+r.getId()+"/done").session(session).with(csrf())).andExpect(status().isBadRequest());
+        assertEquals(50,pantry.findById(p.getId()).orElseThrow().getQuantity());
+        mvc.perform(get("/api/v1/user/almost/system/Dinner").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].missing[0].missing").value(50));
+        mvc.perform(get("/api/v1/user/low").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].name").value("Rice"));
+    }
+    @Test void resetExpiresLimitsAttemptsIsSingleUseAndRevokesSessions() throws Exception {
+        var session=login(alice);
+        alice.setResetCodeHash(encoder.encode("123456"));alice.setResetExpiresAt(Instant.now().minusSeconds(1));users.save(alice);
+        String body=json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password","NewKitchen12!"));
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(body)).andExpect(status().isBadRequest());
+        alice.setResetExpiresAt(Instant.now().plusSeconds(600));users.save(alice);
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(body)).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(body)).andExpect(status().isBadRequest());
+        assertNull(users.findById(alice.getId()).orElseThrow().getResetCodeHash());
+        mvc.perform(get("/api/v1/user/me").session(session)).andExpect(status().isUnauthorized());
+        bob.setResetCodeHash(encoder.encode("123456"));bob.setResetExpiresAt(Instant.now().plusSeconds(600));users.save(bob);
+        for(int k=0;k<5;k++)mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",bob.getEmail(),"code","999999","password",password)))).andExpect(status().isBadRequest());
+        assertEquals(5,users.findById(bob.getId()).orElseThrow().getResetAttempts());
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",bob.getEmail(),"code","123456","password",password)))).andExpect(status().isBadRequest());
+    }
+    @Test void imageSpoofAndPrivateAiRecipeAreRejected() throws Exception {
+        var session=login(alice);
+        mvc.perform(multipart("/api/v1/ai/image/to/ingredient").file(new MockMultipartFile("image","fake.png","image/png","not an image".getBytes())).session(session).with(csrf())).andExpect(status().isBadRequest());
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,()->ImageValidation.validate(new MockMultipartFile("image","huge.jpg","image/jpeg",new byte[6*1024*1024])));
+        var r=new UserRecipe();r.setName("Private Rice");r.setInstructions("Secret recipe");r.setCategory("Dinner");r.setUserId(bob.getId());recipes.save(r);var i=ingredient();
+        mvc.perform(post("/api/v1/ai/ingredient/substitute/"+r.getId()+"/user/"+i.getId()).session(session).with(csrf())).andExpect(status().isBadRequest());
+    }
+    @Test void resetEmailIsGenericAndAccountScoped() throws Exception {
+        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content("{\"email\":\"missing@example.test\"}")).andExpect(status().isOk());
+        verify(email).sendVerificationCode(eq(alice.getEmail()),eq(alice.getName()),anyInt());assertNotNull(users.findById(alice.getId()).orElseThrow().getResetCodeHash());assertNull(users.findById(bob.getId()).orElseThrow().getResetCodeHash());
+    }
+}
