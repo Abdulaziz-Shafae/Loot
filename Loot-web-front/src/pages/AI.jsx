@@ -24,6 +24,7 @@ import {
   Loading,
   useToast,
 } from "../components/UI";
+import PantryPicker from "../components/PantryPicker";
 const tools = [
   [
     "image",
@@ -67,7 +68,7 @@ const tools = [
   ],
 ];
 export default function AI() {
-  const { t } = usePreferences(),
+  const { t, unit } = usePreferences(),
     toast = useToast();
   const [tool, setTool] = useState("image"),
     [file, setFile] = useState(null),
@@ -77,8 +78,12 @@ export default function AI() {
     [busy, setBusy] = useState(false),
     [recipe, setRecipe] = useState(""),
     [leftovers, setLeftovers] = useState([
-      { name: "", quantity: 1, unit: "g" },
+      { rowId: crypto.randomUUID(), ingredientId: "", quantity: 1, unit: "" },
     ]);
+  const pantry = useLoad(async () => {
+    const [rows, ingredients] = await Promise.all([pantryApi.list(), pantryApi.ingredients()]);
+    return rows.map((p) => ({ ...p, ...ingredients.find((i) => i.id === p.ingredientId) })).filter((p) => p.name && p.quantity > 0);
+  });
   const catalog = useLoad(async () => {
     const [system, user, ingredients, si, ui] = await Promise.all([
       recipeApi.list("system"),
@@ -145,7 +150,7 @@ export default function AI() {
       if (tool === "recommend") value = await aiApi.recommend(values.request);
       if (tool === "rescue")
         value = await aiApi.rescue(
-          leftovers.map((x) => ({ ...x, quantity: Number(x.quantity) })),
+          leftovers.map((x) => { const item = pantry.data.find((p) => String(p.ingredientId) === x.ingredientId); return { name: item.name, quantity: Number(x.quantity), unit: item.unit }; }),
         );
       if (tool === "generate") value = await aiApi.generate(values.request);
       setResult(value);
@@ -160,6 +165,8 @@ export default function AI() {
     setError(null);
     try {
       await action();
+      pantry.reload();
+      catalog.reload();
       toast(t("Saved to your kitchen", "تم الحفظ في مطبخك"));
       setResult(null);
     } catch (e) {
@@ -215,7 +222,7 @@ export default function AI() {
           ))}
         </aside>
         <section className="panel ai-workspace">
-          <span className="eyebrow">LOOT INTELLIGENCE</span>
+          <span className="eyebrow">{t("LOOT INTELLIGENCE", "ذكاء لوت")}</span>
           <h2>
             {t(
               tools.find((x) => x[0] === tool)[2],
@@ -338,28 +345,22 @@ export default function AI() {
               <>
                 <p>
                   {t(
-                    "Tell Loot what’s left. Include the quantity and unit for each ingredient.",
-                    "أخبر لوت بما تبقّى، مع كمية ووحدة كل مكوّن.",
+                    "Choose ingredients from your pantry and enter how much you want to use.",
+                    "اختر المكونات من مؤنك وحدّد الكمية التي ترغب باستخدامها.",
                   )}
                 </p>
+                {pantry.loading && <Loading />}{pantry.error && <ErrorState error={pantry.error} retry={pantry.reload} />}
+                {!pantry.loading && !pantry.error && !pantry.data?.length && <p>{t("Add ingredients to your pantry first.", "أضف مكونات إلى مؤنك أولاً.")} <Link to="/pantry">{t("Open pantry", "افتح المؤن")}</Link></p>}
                 {leftovers.map((item, index) => (
-                  <div className="leftover-row" key={index}>
-                    <Field
-                      label={t("Ingredient", "المكوّن")}
-                      value={item.name}
-                      required
-                      maxLength={100}
-                      onChange={(e) =>
-                        setLeftovers((rows) =>
-                          rows.map((x, i) =>
-                            i === index ? { ...x, name: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
+                  <div className="leftover-row" key={item.rowId}>
+                    <PantryPicker items={pantry.data || []} value={item.ingredientId} excluded={leftovers.map((x) => x.ingredientId)} onChange={(id) => {
+                      const selected = pantry.data.find((p) => String(p.ingredientId) === id);
+                      setLeftovers((rows) => rows.map((x, i) => i === index ? { ...x, ingredientId: id, unit: selected?.unit || "" } : x));
+                    }} />
                     <Field
                       label={t("Quantity", "الكمية")}
                       type="number"
+                      max={pantry.data?.find((p) => String(p.ingredientId) === item.ingredientId)?.quantity}
                       min="0.01"
                       step="0.01"
                       required
@@ -374,22 +375,7 @@ export default function AI() {
                         )
                       }
                     />
-                    <Field label={t("Unit", "الوحدة")}>
-                      <select
-                        value={item.unit}
-                        onChange={(e) =>
-                          setLeftovers((rows) =>
-                            rows.map((x, i) =>
-                              i === index ? { ...x, unit: e.target.value } : x,
-                            ),
-                          )
-                        }
-                      >
-                        {["g", "ml", "piece"].map((u) => (
-                          <option key={u}>{u}</option>
-                        ))}
-                      </select>
-                    </Field>
+                    <Field label={t("Unit", "الوحدة")} readOnly value={t(item.unit, {g: "غ", ml: "مل", piece: "حبة", "": ""}[item.unit])} />
                     <button
                       type="button"
                       className="icon-button"
@@ -408,11 +394,11 @@ export default function AI() {
                 <button
                   type="button"
                   className="button secondary"
-                  disabled={leftovers.length >= 30}
+                  disabled={leftovers.length >= Math.min(30, pantry.data?.length || 0)}
                   onClick={() =>
                     setLeftovers((rows) => [
                       ...rows,
-                      { name: "", quantity: 1, unit: "g" },
+                      { rowId: crypto.randomUUID(), ingredientId: "", quantity: 1, unit: "" },
                     ])
                   }
                 >
@@ -423,9 +409,10 @@ export default function AI() {
             )}
             {error && <ErrorState error={error} />}
             <Submit
-              busy={
-                busy ||
+              busy={busy}
+              disabled={
                 (tool === "image" && !file) ||
+                (tool === "rescue" && (pantry.loading || !!pantry.error || leftovers.some((x) => !x.ingredientId))) ||
                 (tool === "substitute" &&
                   (!recipe || catalog.loading || !!catalog.error))
               }
@@ -440,7 +427,7 @@ export default function AI() {
                 {t("A LITTLE INSPIRATION FOR YOU", "إلهام من أجلك")}
               </span>
               {result.message ? (
-                <p>{result.message}</p>
+                <p>{t(result.message, "لم يتم العثور على نتيجة مناسبة. جرّب مكونات أو طلباً آخر.")}</p>
               ) : tool === "image" ? (
                 <form
                   onSubmit={(e) => {
@@ -468,9 +455,9 @@ export default function AI() {
                     defaultValue={result.quantity || ""}
                   />
                   <Field label={t("Unit", "الوحدة")}>
-                    <select name="unit" defaultValue={result.unit}>
+                    <select name="unit" defaultValue={unit(result.unit)}>
                       {["g", "ml", "piece"].map((u) => (
-                        <option key={u}>{u}</option>
+                        <option key={u} value={u}>{t(u, {g: "غ", ml: "مل", piece: "حبة"}[u])}</option>
                       ))}
                     </select>
                   </Field>
@@ -482,14 +469,14 @@ export default function AI() {
                 <>
                   <h3>{result.substitute}</h3>
                   <p>
-                    {result.quantity} {result.unit}
+                    {result.quantity} {unit(result.unit)}
                   </p>
                   <p>{result.reason}</p>
                 </>
               ) : Array.isArray(result) ? (
                 result.map((r, i) => (
                   <article className="ai-recipe" key={i}>
-                    <span className="badge">{r.category}</span>
+                    <span className="badge">{t(r.category, {Breakfast: "فطور", Lunch: "غداء", Dinner: "عشاء", Snack: "وجبة خفيفة"}[r.category] || r.category)}</span>
                     <h3>{r.name}</h3>
                     <p>{r.description}</p>
                     <p className="instructions">{r.instruction}</p>
@@ -513,7 +500,7 @@ export default function AI() {
                   <ul>
                     {result.ingredients?.map((i) => (
                       <li key={i.ingredientId}>
-                        {i.name} · {i.quantity} {i.unit}
+                        {i.name} · {i.quantity} {unit(i.unit)}
                       </li>
                     ))}
                   </ul>

@@ -26,7 +26,7 @@ public class SessionGuard extends OncePerRequestFilter {
             }
         }
         String path=req.getRequestURI();
-        if ("POST".equals(req.getMethod()) && (path.startsWith("/api/v1/ai/") || path.contains("password") || path.endsWith("/login") || path.endsWith("/user/add") || path.endsWith("/email"))) {
+        if (("POST".equals(req.getMethod()) || "PUT".equals(req.getMethod())) && (path.startsWith("/api/v1/ai/") || path.contains("password") || path.endsWith("/login") || path.endsWith("/user/add") || path.endsWith("/email"))) {
             boolean ai=path.startsWith("/api/v1/ai/");
             String key=(ai ? "ai:" : "sensitive:")+req.getRemoteAddr();
             if (!limits.allow(key, ai ? 30 : 40, 900) || (ai && session != null && !limits.allow("ai-user:"+session.getAttribute("userId"),20,900))) {

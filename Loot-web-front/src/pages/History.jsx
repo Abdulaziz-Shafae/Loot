@@ -13,7 +13,7 @@ import {
   useToast,
 } from "../components/UI";
 export default function History() {
-  const { t, lang } = usePreferences();
+  const { t, lang, unit } = usePreferences();
   const toast = useToast();
   const [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(false),
@@ -63,7 +63,7 @@ export default function History() {
                     .filter((i) => i.cookingHistoryId === h.id)
                     .map((i) => (
                       <span className="badge" key={i.id}>
-                        {i.ingredientName} · {i.usedQuantity} {i.unit}
+                        {i.ingredientName} · {i.usedQuantity} {unit(i.unit)}
                       </span>
                     ))}
                 </div>

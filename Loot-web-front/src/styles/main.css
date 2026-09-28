@@ -2090,3 +2090,15 @@ td {
     scroll-behavior: auto !important;
   }
 }
+.theme-menu { position: relative; }
+.theme-trigger { display: flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 12px; }
+.theme-trigger:hover, .theme-options button:hover, .theme-options button:focus-visible { background: var(--soft); }
+.theme-options { position: absolute; z-index: 100; inset-inline-end: 0; top: calc(100% + 8px); width: 155px; max-width: calc(100vw - 32px); padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow); }
+.theme-options button { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: transparent; text-align: start; }
+.theme-options button[aria-checked="true"] { color: var(--green); background: var(--soft); font-weight: 700; }
+.leftover-row > *, .ai-workspace, .recipe-body, .page-head > *, .panel { min-width: 0; }
+.leftover-picker { display: grid; gap: 8px; }
+.leftover-picker input, .leftover-picker select { width: 100%; min-width: 0; }
+.ai-result, .recipe-body, .instructions, .ingredient-row, .user-row { overflow-wrap: anywhere; }
+[dir="rtl"] .text-link > .lucide-arrow-left, [dir="rtl"] .recipe-card .lucide-arrow-up-right { transform: scaleX(-1); }
+@media (max-width: 600px) { .leftover-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; } .leftover-row > .leftover-picker { grid-column: 1 / -1; } }

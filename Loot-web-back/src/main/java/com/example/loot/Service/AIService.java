@@ -313,6 +313,7 @@ public class AIService {
 
 
         // Ingredient already exists in user's pantry
+        if (pantryItem.getQuantity() + quantity > 100000000) return 4;
         pantryItem.setQuantity(pantryItem.getQuantity() + quantity);
 
         pantryItemRepository.save(pantryItem);
@@ -915,7 +916,7 @@ public class AIService {
 
 
         // Invalid recipe name
-        if (!recipeDTO.getName().matches("^[A-Za-z ]+$")) {
+        if (!recipeDTO.getName().matches("^[\\p{L}\\p{M}0-9 '-]+$")) {
             return 3;
         }
 
@@ -953,7 +954,7 @@ public class AIService {
         // Validate all ingredients before saving
         for (GeneratedRecipeIngredientDTO dto : recipeDTO.getIngredients()) {
 
-            if (dto.getIngredientId() == null || dto.getQuantity() == null || !Double.isFinite(dto.getQuantity()) || dto.getQuantity() <= 0) {
+            if (dto == null || dto.getIngredientId() == null || dto.getQuantity() == null || !Double.isFinite(dto.getQuantity()) || dto.getQuantity() <= 0 || dto.getQuantity() > 100000000) {
                 return 4;
             }
 

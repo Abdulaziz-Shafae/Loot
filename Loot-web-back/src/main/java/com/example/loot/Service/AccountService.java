@@ -27,7 +27,7 @@ public class AccountService {
         if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72 || !password.matches("(?s)(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,72}"))
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Use 8–72 characters with uppercase, lowercase, a number and a symbol");
     }
-    public void register(Register dto) {
+    public User register(Register dto) {
         strong(dto.password());
         String address=normalize(dto.email());
         if (users.findUserByEmail(address)!=null) throw new ResponseStatusException(HttpStatus.CONFLICT,"Unable to create account with these details");
@@ -35,6 +35,7 @@ public class AccountService {
         u.setPassword(encoder.encode(dto.password())); u.setRole("USER"); users.save(u);
         // Registration remains usable if the optional welcome message cannot be delivered.
         try { email.sendWelcomeEmail(u.getEmail(),u.getName()); } catch (org.springframework.mail.MailException e) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("Welcome email could not be delivered"); }
+        return u;
     }
     public User login(Login dto) {
         String address=normalize(dto.email());

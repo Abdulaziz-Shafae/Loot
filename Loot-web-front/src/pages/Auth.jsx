@@ -4,10 +4,11 @@ import { Leaf } from "lucide-react";
 import { authApi } from "../api/authApi";
 import { useAuth } from "../context/AuthContext";
 import { usePreferences } from "../context/Preferences";
-import { Field, ErrorState, Submit } from "../components/UI";
+import { Field, ErrorState, Submit, useToast } from "../components/UI";
 export default function Auth({ mode }) {
   const { t } = usePreferences();
-  const { user, login } = useAuth();
+  const { user, login, setUser } = useAuth();
+  const toast = useToast();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(null),
@@ -33,14 +34,15 @@ export default function Auth({ mode }) {
         await login(values);
         navigate("/dashboard");
       } else if (mode === "signup") {
-        await authApi.signup(values);
-        setMessage(
-          t(
-            "Account created. You can now sign in.",
-            "تم إنشاء حسابك. يمكنك تسجيل الدخول الآن.",
-          ),
-        );
-        e.target.reset();
+        const registration = await authApi.signup(values);
+        try {
+          if (!registration.authenticated) throw new Error("Sign in required");
+          setUser(await authApi.me());
+          navigate("/dashboard", { replace: true });
+        } catch {
+          toast(t("Account created. You can now sign in.", "تم إنشاء حسابك. يمكنك تسجيل الدخول الآن."));
+          navigate("/login", { replace: true });
+        }
       } else if (mode === "forgot") {
         await authApi.forgot(values);
         setMessage(

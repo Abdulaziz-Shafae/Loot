@@ -152,10 +152,10 @@ export function Confirm({ title, onConfirm, onClose }) {
     </Modal>
   );
 }
-export function Submit({ busy, children }) {
+export function Submit({ busy, disabled, children }) {
   const { t } = usePreferences();
   return (
-    <button className="button" type="submit" disabled={busy}>
+    <button className="button" type="submit" disabled={busy || disabled}>
       {busy ? (
         <>
           <LoaderCircle size={17} className="spin" />

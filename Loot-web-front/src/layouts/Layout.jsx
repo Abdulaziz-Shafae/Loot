@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Menu, X, SunMoon, LogOut, Leaf } from "lucide-react";
+import { Menu, X, LogOut, Leaf } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { usePreferences } from "../context/Preferences";
 import { ErrorState } from "../components/UI";
+import ThemeMenu from "../components/ThemeMenu";
 export default function Layout() {
   const { user, logout } = useAuth();
-  const { lang, setLang, theme, setTheme, t } = usePreferences();
+  const { lang, setLang, t } = usePreferences();
   const [open, setOpen] = useState(false),
     [error, setError] = useState(null);
   const navigate = useNavigate();
@@ -65,19 +66,11 @@ export default function Layout() {
           <button
             className="language"
             onClick={() => setLang(lang === "en" ? "ar" : "en")}
-            aria-label={t("Switch to Arabic", "Switch to English")}
+            aria-label={t("Switch to Arabic", "التبديل إلى الإنجليزية")}
           >
             {lang === "en" ? "العربية" : "EN"}
           </button>
-          <label className="theme">
-            <SunMoon size={18} />
-            <span className="sr-only">{t("Theme", "المظهر")}</span>
-            <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-              <option value="system">{t("System", "النظام")}</option>
-              <option value="light">{t("Light", "فاتح")}</option>
-              <option value="dark">{t("Dark", "داكن")}</option>
-            </select>
-          </label>
+          <ThemeMenu />
           {user ? (
             <button
               className="icon-button"
@@ -129,3 +122,4 @@ export default function Layout() {
     </>
   );
 }
+

@@ -24,7 +24,7 @@ import {
   useToast,
 } from "../components/UI";
 export default function Pantry() {
-  const { t } = usePreferences();
+  const { t, unit } = usePreferences();
   const toast = useToast();
   const [view, setView] = useState("cards"),
     [search, setSearch] = useState(""),
@@ -160,7 +160,7 @@ export default function Pantry() {
                 </span>
               </div>
               <div className="quantity">
-                <strong>{p.quantity}</strong> <span>{p.ingredient?.unit}</span>
+                <strong>{p.quantity}</strong> <span>{unit(p.ingredient?.unit)}</span>
                 <small>
                   {t("Low-stock threshold", "حد المخزون المنخفض")}:{" "}
                   {p.lowStockThreshold}
@@ -220,7 +220,7 @@ export default function Pantry() {
                 </option>
                 {ingredients.map((i) => (
                   <option value={i.id} key={i.id}>
-                    {i.name} ({i.unit})
+                    {i.name} ({unit(i.unit)})
                   </option>
                 ))}
               </select>

@@ -81,7 +81,7 @@ export default function Home() {
               </small>
             </div>
           </div>
-          <span className="visual-caption">THE LOOT WAY OF COOKING</span>
+          <span className="visual-caption">{t("THE LOOT WAY OF COOKING", "الطبخ على طريقة لوت")}</span>
         </div>
       </section>
       <div className="value-strip">

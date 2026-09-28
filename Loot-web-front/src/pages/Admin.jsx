@@ -53,7 +53,7 @@ function Overview() {
   );
 }
 function UserList() {
-  const { t } = usePreferences(),
+  const { t, unit } = usePreferences(),
     { user } = useAuth();
   const [remove, setRemove] = useState(null);
   const state = useLoad(adminApi.users);
@@ -80,7 +80,7 @@ function UserList() {
                 <td>{u.name}</td>
                 <td>{u.email}</td>
                 <td dir="ltr">{u.phoneNumber}</td>
-                <td>{u.role}</td>
+                <td>{u.role === "ADMIN" ? t("Administrator", "مسؤول") : t("User", "مستخدم")}</td>
                 <td>
                   <button
                     className="icon-button"
@@ -113,7 +113,7 @@ function UserList() {
   );
 }
 function Ingredients() {
-  const { t } = usePreferences(),
+  const { t, unit } = usePreferences(),
     toast = useToast();
   const state = useLoad(pantryApi.ingredients);
   const [edit, setEdit] = useState(null),
@@ -142,7 +142,7 @@ function Ingredients() {
         state.data.map((i) => (
           <div className="data-row" key={i.id}>
             <div>
-              <b>{i.name}</b> <span className="muted">{i.unit}</span>
+              <b>{i.name}</b> <span className="muted">{unit(i.unit)}</span>
             </div>
             <div className="actions">
               <button
@@ -203,7 +203,7 @@ function Ingredients() {
             <Field label={t("Unit", "الوحدة")}>
               <select name="unit" defaultValue={edit.unit || "g"}>
                 {["g", "ml", "piece"].map((u) => (
-                  <option key={u}>{u}</option>
+                  <option key={u} value={u}>{t(u, {g: "غ", ml: "مل", piece: "حبة"}[u])}</option>
                 ))}
               </select>
             </Field>

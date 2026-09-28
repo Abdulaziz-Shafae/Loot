@@ -38,6 +38,8 @@ class WebSecurityTests {
     @Autowired CookingHistoryRepository history;
     @Autowired CookingHisIngRepository historyIngredients;
     @MockitoBean EmailService email;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+    org.springframework.security.web.context.HttpSessionSecurityContextRepository contexts;
     User alice,bob,admin;
     final String password="Kitchen12!";
 
@@ -80,6 +82,54 @@ class WebSecurityTests {
         mvc.perform(post("/api/v1/user/add").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("id",alice.getId(),"name","New User","email",address,"password",password,"phoneNumber","0500000000","role","ADMIN")))).andExpect(status().isOk());
         var u=users.findUserByEmail(address);assertEquals("USER",u.getRole());assertNotEquals(alice.getId(),u.getId());assertNotEquals(password,u.getPassword());assertTrue(encoder.matches(password,u.getPassword()));
     }
+    @Test void signupAuthenticatesRotatesSessionAndRenewsCsrf() throws Exception {
+        var tokenResponse=mvc.perform(get("/api/v1/user/csrf")).andReturn();
+        var session=(MockHttpSession)tokenResponse.getRequest().getSession(false);
+        var oldId=session.getId();
+        var token=json.readTree(tokenResponse.getResponse().getContentAsString());
+        String address="signup"+UUID.randomUUID()+"@example.test";
+        mvc.perform(post("/api/v1/user/add").session(session).header(token.get("headerName").asText(),token.get("token").asText()).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("name","New Cook","email",address,"password",password,"phoneNumber","0500000000"))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.authenticated").value(true));
+        assertNotEquals(oldId,session.getId());
+        mvc.perform(get("/api/v1/user/me").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$.email").value(address)).andExpect(jsonPath("$.password").doesNotExist());
+        mvc.perform(post("/api/v1/user/logout").session(session).header(token.get("headerName").asText(),token.get("token").asText())).andExpect(status().isForbidden());
+        var fresh=json.readTree(mvc.perform(get("/api/v1/user/csrf").session(session)).andReturn().getResponse().getContentAsString());
+        mvc.perform(post("/api/v1/user/logout").session(session).header(fresh.get("headerName").asText(),fresh.get("token").asText())).andExpect(status().isOk());
+        assertTrue(session.isInvalid());
+    }
+    @Test void signupSessionFailureKeepsAccountAndFallsBackSafely() throws Exception {
+        doThrow(new IllegalStateException("Test session failure")).when(contexts).saveContext(any(),any(),any());
+        String address="fallback"+UUID.randomUUID()+"@example.test";
+        var response=mvc.perform(post("/api/v1/user/add").with(csrf()).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("name","New Cook","email",address,"password",password,"phoneNumber","0500000000"))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.authenticated").value(false)).andReturn();
+        assertNotNull(users.findUserByEmail(address));
+        assertNull(response.getRequest().getSession(false));
+    }
+    @Test void numericAndAiSaveValidationRejectsInvalidRequests() throws Exception {
+        var i=ingredient();var session=login(alice);
+        for(double quantity:List.of(-0.5,100000001.0)) {
+            mvc.perform(post("/api/v1/pantry/add").session(session).with(csrf()).contentType("application/json")
+                .content(json.writeValueAsString(Map.of("ingredientId",i.getId(),"quantity",quantity,"lowStockThreshold",0))))
+                .andExpect(status().isBadRequest());
+        }
+        mvc.perform(post("/api/v1/ai/recipe/generator/add").session(session).with(csrf()).contentType("application/json")
+            .content("{\"name\":\"Rice\",\"category\":\"Dinner\",\"instructions\":\"Cook\",\"ingredients\":[null]}"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/ai/image/to/ingredient/add").session(session).with(csrf()).contentType("application/json")
+            .content("{\"name\":\"Rice\",\"quantity\":-1,\"unit\":\"g\"}"))
+            .andExpect(status().isBadRequest());
+    }
+    @Test void rescueRejectsForeignStockDuplicatesWrongUnitsAndExcess() throws Exception {
+        var i=ingredient();stock(bob,i,300);var session=login(alice);
+        String valid="[{\"name\":\"Rice\",\"quantity\":20,\"unit\":\"g\"}]";
+        mvc.perform(post("/api/v1/ai/leftover/rescue").session(session).with(csrf()).contentType("application/json").content(valid)).andExpect(status().isBadRequest());
+        stock(alice,i,100);
+        for(String body:List.of(valid.replace("20","101"),valid.replace("g\"","ml\""),valid.replace("]",",{\"name\":\"rice\",\"quantity\":1,\"unit\":\"g\"}]"),valid.replace("20","-1")))
+            mvc.perform(post("/api/v1/ai/leftover/rescue").session(session).with(csrf()).contentType("application/json").content(body)).andExpect(status().isBadRequest());
+        assertEquals(100,pantry.findPantryItemByUserIdAndIngredientId(alice.getId(),i.getId()).getQuantity());
+    }
     @Test void pantryOwnershipCrudAndMassAssignment() throws Exception {
         var i=ingredient();var other=stock(bob,i,300);var session=login(alice);
         mvc.perform(get("/api/v1/pantry/get").session(session)).andExpect(status().isOk()).andExpect(content().json("[]"));
@@ -121,6 +171,13 @@ class WebSecurityTests {
         assertEquals(50,pantry.findById(p.getId()).orElseThrow().getQuantity());
         mvc.perform(get("/api/v1/user/almost/system/Dinner").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].missing[0].missing").value(50));
         mvc.perform(get("/api/v1/user/low").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].name").value("Rice"));
+    }
+    @Test void emptyRecipeCannotCreateFreeCookingHistory() throws Exception {
+        var r=new SystemRecipe();r.setName("Empty Recipe");r.setCategory("Dinner");r.setInstructions("Add ingredients first");r=systems.save(r);
+        var session=login(alice);
+        mvc.perform(get("/api/v1/user/availability/system").session(session)).andExpect(status().isOk()).andExpect(jsonPath("$[0].canCook").value(false));
+        mvc.perform(post("/api/v1/user/cook/system/"+r.getId()+"/done").session(session).with(csrf())).andExpect(status().isBadRequest());
+        assertTrue(history.findCookingHistoryByUserId(alice.getId()).isEmpty());
     }
     @Test void resetExpiresLimitsAttemptsIsSingleUseAndRevokesSessions() throws Exception {
         var session=login(alice);

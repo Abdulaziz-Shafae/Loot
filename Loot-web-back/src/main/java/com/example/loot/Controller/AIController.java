@@ -25,6 +25,8 @@ public class AIController {
 
     private final AIService aiService;
     private final jakarta.validation.Validator validator;
+    private final com.example.loot.Repository.IngredientRepository ingredients;
+    private final com.example.loot.Repository.PantryItemRepository pantry;
 
     @PostMapping("/image/to/ingredient")
     public ResponseEntity<?> imageToIngredient(@RequestParam(value = "image", required = false) MultipartFile image, HttpSession session) {
@@ -65,7 +67,7 @@ public class AIController {
     }
 
     @PostMapping("/image/to/ingredient/add")
-    public ResponseEntity<?> addImageIngredient(@RequestBody ImageToIngredientDTO imageToIngredientDTO, HttpSession session) {
+    public ResponseEntity<?> addImageIngredient(@RequestBody @Valid ImageToIngredientDTO imageToIngredientDTO, HttpSession session) {
 
         int result = aiService.addImageIngredient((Integer) session.getAttribute("userId"), imageToIngredientDTO);
 
@@ -181,7 +183,16 @@ public class AIController {
 
         if (leftovers.size()>30 || leftovers.stream().anyMatch(x -> x==null || !validator.validate(x).isEmpty() || !Double.isFinite(x.getQuantity()) || x.getName().length()>100))
             return ResponseEntity.badRequest().body(new ApiResponse("Check leftover ingredients"));
-        List<AIRecipeDTO> result = aiService.leftoverRescue((Integer) session.getAttribute("userId"), leftovers);
+        var seen = new java.util.HashSet<Integer>();
+        Integer userId = (Integer) session.getAttribute("userId");
+        for (var leftover : leftovers) {
+            var ingredient = ingredients.findIngredientByNameIgnoreCase(leftover.getName().trim());
+            var stock = ingredient == null ? null : pantry.findPantryItemByUserIdAndIngredientId(userId, ingredient.getId());
+            if (stock == null || !seen.add(ingredient.getId()) || !ingredient.getUnit().equals(leftover.getUnit()) || leftover.getQuantity() > stock.getQuantity())
+                return ResponseEntity.badRequest().body(new ApiResponse("Choose unique pantry ingredients with valid units and available quantities"));
+            leftover.setName(ingredient.getName());
+        }
+        List<AIRecipeDTO> result = aiService.leftoverRescue(userId, leftovers);
 
 
         if (result == null) {
@@ -220,7 +231,7 @@ public class AIController {
     }
 
     @PostMapping("/recipe/generator/add")
-    public ResponseEntity<?> addGeneratedRecipe(@RequestBody GeneratedRecipeDTO recipeDTO, HttpSession session) {
+    public ResponseEntity<?> addGeneratedRecipe(@RequestBody @Valid GeneratedRecipeDTO recipeDTO, HttpSession session) {
 
         int result = aiService.addGeneratedRecipe((Integer) session.getAttribute("userId"), recipeDTO);
 

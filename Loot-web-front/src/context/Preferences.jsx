@@ -36,8 +36,9 @@ export function Preferences({ children }) {
     return () => media.removeEventListener("change", update);
   }, [theme]);
   const t = (en, ar) => (lang === "ar" ? ar : en);
+  const unit = (value) => lang === "ar" ? ({ g: "غ", ml: "مل", piece: "حبة" }[value] || value) : value;
   return (
-    <Context.Provider value={{ lang, setLang, theme, setTheme, t }}>
+    <Context.Provider value={{ lang, setLang, theme, setTheme, t, unit }}>
       {children}
     </Context.Provider>
   );

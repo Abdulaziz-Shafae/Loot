@@ -31,18 +31,22 @@ public class PantryItem {
     private Integer ingredientId;
 
     @NotNull( message = "The quantity cant be empty")
-    @Min(value = 0 , message = "The quantity must be 0 or more")
+    @jakarta.validation.constraints.DecimalMin("0")
     @Check(constraints = "quantity >= 0")
     @Column(columnDefinition = "double not null")
+    @jakarta.validation.constraints.DecimalMax("100000000")
     private Double quantity;
 
     @NotNull( message = "The low stock threshold cant be empty")
-    @Min(value = 0 , message = "The low stock threshold must be 0 or more")
+    @jakarta.validation.constraints.DecimalMin("0")
     @Check(constraints = "low_stock_threshold >= 0")
     @Column(columnDefinition = "double not null")
+    @jakarta.validation.constraints.DecimalMax("100000000")
     private Double lowStockThreshold;
     @Version
     @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     private Long version;
 }
+
+
 

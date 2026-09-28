@@ -20,7 +20,7 @@ import RecipeEditor, { categoryArabic } from "../components/RecipeEditor";
 export default function RecipeDetail() {
   const { type, id } = useParams();
   const { user } = useAuth();
-  const { t } = usePreferences();
+  const { t, unit } = usePreferences();
   const navigate = useNavigate(),
     toast = useToast();
   const [edit, setEdit] = useState(false),
@@ -211,12 +211,12 @@ export default function RecipeDetail() {
                 <div>
                   <b>{item?.name}</b>
                   <span>
-                    {row.requiredQuantity} {item?.unit}
+                    {row.requiredQuantity} {unit(item?.unit)}
                   </span>
                   {missing && (
                     <small className="warning-text">
                       {t("Available", "المتوفر")}: {missing.available} ·{" "}
-                      {t("Missing", "الناقص")}: {missing.missing} {item?.unit}
+                      {t("Missing", "الناقص")}: {missing.missing} {unit(item?.unit)}
                     </small>
                   )}
                 </div>
@@ -293,7 +293,7 @@ export default function RecipeDetail() {
                 </option>
                 {catalog.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.unit})
+                    {c.name} ({unit(c.unit)})
                   </option>
                 ))}
               </select>

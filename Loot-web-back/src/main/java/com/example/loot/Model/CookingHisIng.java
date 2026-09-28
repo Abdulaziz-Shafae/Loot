@@ -43,6 +43,7 @@ public class CookingHisIng {
     )
     @Check(constraints = "used_quantity > 0")
     @Column(columnDefinition = "double not null")
+    @jakarta.validation.constraints.DecimalMax("100000000")
     private Double usedQuantity;
 
     @NotBlank( message = "The unit cant be blank")
@@ -56,3 +57,4 @@ public class CookingHisIng {
     @Column(columnDefinition = "VARCHAR(5) not null")
     private String unit;
 }
+

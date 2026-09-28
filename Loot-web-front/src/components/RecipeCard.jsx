@@ -1,28 +1,25 @@
 import { Link } from "react-router-dom";
 import { ArrowUpRight, ChefHat } from "lucide-react";
 import { usePreferences } from "../context/Preferences";
+import { recipeFallback } from "./recipeImages";
 export function RecipeImage({ recipe }) {
   return (
     <div
       className={"recipe-image " + (recipe.category || "Dinner").toLowerCase()}
     >
-      {recipe.imageUrl ? (
         <img
-          src={recipe.imageUrl}
+          key={recipe.imageUrl || recipe.name}
+          src={recipe.imageUrl || recipeFallback(recipe)}
           alt={recipe.name}
           loading="lazy"
           referrerPolicy="no-referrer"
           onError={(e) => {
-            e.currentTarget.style.display = "none";
+            const img = e.currentTarget;
+            const fallback = recipeFallback(recipe);
+            if (!img.dataset.fallback) { img.dataset.fallback = "true"; img.src = fallback; }
+            else if (!img.src.endsWith("/recipes/fallback.svg")) img.src = "/recipes/fallback.svg";
           }}
         />
-      ) : null}
-      <div className="dish-art" aria-hidden="true">
-        <span />
-        <i />
-        <b />
-        <em />
-      </div>
     </div>
   );
 }

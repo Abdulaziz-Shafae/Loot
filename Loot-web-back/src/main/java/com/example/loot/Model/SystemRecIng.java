@@ -36,6 +36,8 @@ public class SystemRecIng {
     @DecimalMin(value = "0.0", inclusive = false, message = "The required quantity must be more than 0")
     @Check(constraints = "required_quantity > 0")
     @Column(columnDefinition = "double not null")
+    @jakarta.validation.constraints.DecimalMax("100000000")
     private Double requiredQuantity;
 
 }
+

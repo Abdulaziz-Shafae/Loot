@@ -28,15 +28,29 @@ public class AuthController {
     private final HttpSessionSecurityContextRepository contexts;
     private final HttpSessionCsrfTokenRepository csrf;
     @GetMapping("/csrf") public Map<String,String> csrf(CsrfToken token) { return Map.of("token",token.getToken(),"headerName",token.getHeaderName()); }
-    @PostMapping("/add") public ApiResponse register(@RequestBody @Valid Register dto) { accounts.register(dto); return new ApiResponse("Account created"); }
+    @PostMapping("/add") public Map<String,Object> register(@RequestBody @Valid Register dto, HttpServletRequest req, HttpServletResponse res) {
+        User user=accounts.register(dto);
+        try {
+            authenticate(user,req,res);
+            return Map.of("message","Account created","authenticated",true);
+        } catch (RuntimeException ex) {
+            SecurityContextHolder.clearContext();
+            var session=req.getSession(false);
+            if(session!=null) session.invalidate();
+            return Map.of("message","Account created. You can now sign in.","authenticated",false);
+        }
+    }
     @PostMapping("/login") public User login(@RequestBody @Valid Login dto, HttpServletRequest req,HttpServletResponse res) {
         User user=accounts.login(dto);
+        authenticate(user,req,res); return user;
+    }
+    private void authenticate(User user,HttpServletRequest req,HttpServletResponse res) {
         req.getSession(); req.changeSessionId();
         var context=SecurityContextHolder.createEmptyContext();
         context.setAuthentication(UsernamePasswordAuthenticationToken.authenticated(user.getId().toString(),null,List.of(new SimpleGrantedAuthority("ROLE_"+user.getRole()))));
         SecurityContextHolder.setContext(context); contexts.saveContext(context,req,res);
         req.getSession().setAttribute("userId",user.getId()); req.getSession().setAttribute("authVersion",user.getAuthVersion()); req.getSession().setAttribute("role",user.getRole());
-        csrf.saveToken(null,req,res); return user;
+        csrf.saveToken(null,req,res);
     }
     @PostMapping("/logout") public ApiResponse logout(HttpServletRequest req,HttpServletResponse res) {
         csrf.saveToken(null,req,res); var session=req.getSession(false); if(session!=null)session.invalidate(); SecurityContextHolder.clearContext();

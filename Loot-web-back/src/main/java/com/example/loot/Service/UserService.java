@@ -58,6 +58,7 @@ public class UserService {
 
             if (userRecipe != null) {
                 List<UserRecIng> userRecIng = userRecIngRepository.findUserRecIngByUserRecipeId(recipeId);
+                if (userRecIng.isEmpty()) return 6;
                 for (int i = 0; i < userRecIng.size(); i++) {
                     int result= haveTheIngredient(userId, userRecIng.get(i).getIngredientId(), userRecIng.get(i).getRequiredQuantity());
                     if (result == 3) {
@@ -80,6 +81,7 @@ public class UserService {
 
             if (systemRecipe != null) {
                 List<SystemRecIng> systemRecIngs = systemRecIngRepository.findSystemRecIngBySystemRecipeId(recipeId);
+                if (systemRecIngs.isEmpty()) return 6;
                 for (int i = 0; i < systemRecIngs.size(); i++) {
                     int result= haveTheIngredient(userId, systemRecIngs.get(i).getIngredientId(), systemRecIngs.get(i).getRequiredQuantity());
                     if (result == 3) {
@@ -915,6 +917,7 @@ public class UserService {
         }
 
         List<CookingHisIng> historyIngredients = cookingHisIngRepository.findCookingHisIngByCookingHistoryId(historyId);
+        if (historyIngredients.isEmpty()) return 6;
 
 
         // Check all ingredients first

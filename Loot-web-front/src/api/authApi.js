@@ -1,7 +1,11 @@
 import { get, post, put, refreshCsrf } from "./client";
 export const authApi = {
   me: () => get("/user/me"),
-  signup: (d) => post("/user/add", d),
+  signup: async (d) => {
+    const result = await post("/user/add", d);
+    try { await refreshCsrf(); } catch { return { ...result, authenticated: false }; }
+    return result;
+  },
   login: async (d) => {
     const user = await post("/user/login", d);
     await refreshCsrf();

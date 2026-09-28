@@ -12,7 +12,7 @@ import {
   useToast,
 } from "../components/UI";
 export default function Profile() {
-  const { user, setUser, logout } = useAuth();
+  const { user, setUser } = useAuth();
   const { t } = usePreferences();
   const toast = useToast(),
     navigate = useNavigate();
