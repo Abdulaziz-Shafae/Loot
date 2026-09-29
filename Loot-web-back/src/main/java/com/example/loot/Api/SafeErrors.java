@@ -17,7 +17,7 @@ public class SafeErrors {
     ResponseEntity<ApiResponse> size() { return ResponseEntity.status(413).body(new ApiResponse("Image must be smaller than 5 MB")); }
     @ExceptionHandler({org.springframework.dao.DataIntegrityViolationException.class, org.springframework.dao.OptimisticLockingFailureException.class})
     ResponseEntity<ApiResponse> conflict() { return ResponseEntity.status(409).body(new ApiResponse("Data changed or is already in use. Refresh and try again.")); }
-    @ExceptionHandler({org.springframework.web.client.RestClientException.class,org.springframework.mail.MailException.class})
+    @ExceptionHandler({org.springframework.web.client.RestClientException.class,com.example.loot.Service.EmailDeliveryException.class})
     ResponseEntity<ApiResponse> upstream() { return ResponseEntity.status(503).body(new ApiResponse("This service is temporarily unavailable. Try again later.")); }
     @ExceptionHandler(Exception.class)
     ResponseEntity<ApiResponse> other(Exception e) { org.slf4j.LoggerFactory.getLogger(getClass()).error("Request failed: {}",e.getClass().getSimpleName()); return ResponseEntity.internalServerError().body(new ApiResponse("Something went wrong. Please try again.")); }

@@ -32,14 +32,18 @@ Use [.env.example](.env.example) as a checklist and set values in the terminal/I
 | `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | MySQL connection |
 | `DDL_AUTO` | `update` for initial fresh development schema, otherwise `validate` |
 | `FRONTEND_ORIGINS` | Comma-separated exact origins; development `http://localhost:5173` |
-| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM` | SMTP configuration |
-| `MAIL_AUTH`, `MAIL_TLS` | SMTP authentication and STARTTLS; defaults true |
+| `RESEND_API_KEY` | Server-side Resend API key; delivered over HTTPS, never exposed to the frontend |
+| `RESEND_FROM_EMAIL` | Verified Resend sender, optionally `Loot <sender@verified-domain>` |
+
 | `OPENAI_API_KEY` | Server-only API key |
 | `OPENAI_MODEL` | Defaults to model from the supplied backend; choose a model supported by your API account |
 | `SESSION_COOKIE_SECURE` | False only for local HTTP; production profile forces true |
 | `SPRING_PROFILES_ACTIVE` | Set `prod` in production |
 | `VITE_API_BASE_URL` | Optional public frontend API base; defaults `/api/v1` |
 
+Email uses `POST https://api.resend.com/emails` with the existing plain-text welcome, password-reset and low-stock messages. Missing configuration does not prevent startup. Welcome delivery failure does not block signup; failed reset delivery clears the reset code; low-stock delivery failures return 503. No automatic send retries are performed to avoid duplicate messages.
+
+Set both Resend variables on the Railway backend before deploying. The old `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, `MAIL_AUTH`, and `MAIL_TLS` variables are no longer used; remove them manually after successful verification. The Resend `onboarding@resend.dev` testing sender is restricted to the Resend account owner's address; verify a custom domain for other recipients. See [Resend sending API](https://resend.com/docs/api-reference/emails/send-email).
 Keep frontend and API on the same origin in production using a reverse proxy: `/api` to Spring Boot, all other application routes to Vite's built `index.html`. This fits SameSite=Lax sessions. Serve HTTPS. Configure the actual frontend origin; never `*`. Frontend environment variables must never contain database, mail or OpenAI secrets.
 
 ## Run the backend (PowerShell)

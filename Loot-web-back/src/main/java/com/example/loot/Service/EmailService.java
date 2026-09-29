@@ -1,30 +1,72 @@
 package com.example.loot.Service;
 
 import com.example.loot.DTO.LowStockDTO;
-import lombok.RequiredArgsConstructor;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 @Service
-@RequiredArgsConstructor
 public class EmailService {
 
-    private final JavaMailSender mailSender;
-    @org.springframework.beans.factory.annotation.Value("${loot.mail.from}")
-    private String from;
+    private final RestClient client;
+    private final String apiKey;
+    private final String from;
+
+    @Autowired
+    public EmailService(@Value("${resend.api.key:}") String apiKey,
+                        @Value("${resend.from.email:}") String from) {
+        this(defaultClient(), apiKey, from);
+    }
+
+    EmailService(RestClient client, String apiKey, String from) {
+        this.client = client;
+        this.apiKey = apiKey;
+        this.from = from;
+    }
+
+    private static RestClient defaultClient() {
+        var factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return RestClient.builder().requestFactory(factory).build();
+    }
+
+    public void sendEmail(String to, String subject, String body) {
+        if (apiKey.isBlank() || from.isBlank()) {
+            throw new EmailDeliveryException("Email delivery is not configured");
+        }
+        try {
+            var response = client.post().uri("https://api.resend.com/emails")
+                    .headers(headers -> headers.setBearerAuth(apiKey))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("from", from, "to", List.of(to), "subject", subject, "text", body))
+                    .retrieve().body(ResendResponse.class);
+            if (response == null || response.id() == null || response.id().isBlank()) {
+                throw new EmailDeliveryException("Email provider returned no message ID");
+            }
+        } catch (RestClientResponseException e) {
+            // Never log provider response bodies, request headers, recipients or reset codes.
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn("Email provider rejected request (HTTP {})", e.getStatusCode().value());
+            throw new EmailDeliveryException("Email provider rejected the request");
+        } catch (RestClientException e) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn("Email provider request failed");
+            throw new EmailDeliveryException("Email provider is unavailable");
+        }
+    }
+
+    private record ResendResponse(String id) {}
 
     public void sendWelcomeEmail(String toEmail, String name) {
 
-        SimpleMailMessage message = new SimpleMailMessage();
-
-        message.setFrom(from);
-        message.setTo(toEmail);
-        message.setSubject("Welcome to Loot!");
-
-        message.setText(
+        sendEmail(toEmail, "Welcome to Loot!",
                 "Hi " + name + ",\n\n" +
                         "Welcome to Loot!\n\n" +
                         "Your account has been created successfully.\n" +
@@ -33,18 +75,11 @@ public class EmailService {
                         "Loot Team"
         );
 
-        mailSender.send(message);
     }
 
     public void sendVerificationCode(String toEmail, String name, Integer code) {
 
-        SimpleMailMessage message = new SimpleMailMessage();
-
-        message.setFrom(from);
-        message.setTo(toEmail);
-        message.setSubject("Loot Password Reset Code");
-
-        message.setText(
+        sendEmail(toEmail, "Loot Password Reset Code",
                 "Hi " + name + ",\n\n" +
                         "We received a request to reset your Loot password.\n\n" +
                         "Your verification code is:\n\n" +
@@ -54,16 +89,9 @@ public class EmailService {
                         "Loot Team"
         );
 
-        mailSender.send(message);
     }
 
     public void sendLowStockEmail(String toEmail, String name, List<LowStockDTO> list) {
-
-        SimpleMailMessage message = new SimpleMailMessage();
-
-        message.setFrom(from);
-        message.setTo(toEmail);
-        message.setSubject("Low Stock List");
 
         StringBuilder lowStockList = new StringBuilder();
 
@@ -79,7 +107,7 @@ public class EmailService {
                     .append("\n\n");
         }
 
-        message.setText(
+        sendEmail(toEmail, "Low Stock List",
                 "Hi " + name + ",\n\n" +
                         "The following ingredients in your pantry are running low:\n\n" +
                         lowStockList +
@@ -87,7 +115,6 @@ public class EmailService {
                         "Loot Team"
         );
 
-        mailSender.send(message);
     }
 
 

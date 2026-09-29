@@ -34,7 +34,7 @@ public class AccountService {
         var u=new User(); u.setName(dto.name().trim()); u.setEmail(address); u.setPhoneNumber(dto.phoneNumber());
         u.setPassword(encoder.encode(dto.password())); u.setRole("USER"); users.save(u);
         // Registration remains usable if the optional welcome message cannot be delivered.
-        try { email.sendWelcomeEmail(u.getEmail(),u.getName()); } catch (org.springframework.mail.MailException e) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("Welcome email could not be delivered"); }
+        try { email.sendWelcomeEmail(u.getEmail(),u.getName()); } catch (com.example.loot.Service.EmailDeliveryException e) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("Welcome email could not be delivered"); }
         return u;
     }
     public User login(Login dto) {
@@ -56,7 +56,7 @@ public class AccountService {
         int code=random.nextInt(900000)+100000;
         u.setResetCodeHash(encoder.encode(String.valueOf(code))); u.setResetExpiresAt(Instant.now().plusSeconds(600)); u.setResetAttempts(0);
         try { email.sendVerificationCode(address,u.getName(),code); }
-        catch(org.springframework.mail.MailException e) { u.setResetCodeHash(null); u.setResetExpiresAt(null); org.slf4j.LoggerFactory.getLogger(getClass()).warn("Reset email could not be delivered"); }
+        catch(com.example.loot.Service.EmailDeliveryException e) { u.setResetCodeHash(null); u.setResetExpiresAt(null); org.slf4j.LoggerFactory.getLogger(getClass()).warn("Reset email could not be delivered"); }
         users.save(u);
     }
     @Transactional
