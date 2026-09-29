@@ -4,7 +4,7 @@
     auto_https off
 }
 
-:{$PORT:3000} {
+:8080 {
     root * dist
     encode gzip
     file_server
