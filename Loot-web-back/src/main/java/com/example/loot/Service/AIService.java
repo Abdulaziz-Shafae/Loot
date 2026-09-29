@@ -437,7 +437,7 @@ public class AIService {
 
             Rules:
             - Recommend ONLY an ingredient from the user's pantry.
-            - The substitute must make sense for this specific recipe.
+            - The substitute must make sense for this specific recipe and must differ from the ingredient being replaced.
             - Never recommend an ingredient outside the pantry.
             - Never invent an ingredient.
             - Return the exact ingredient name exactly as it appears in the user's pantry.
@@ -490,7 +490,7 @@ public class AIService {
 
 
         // AI invented an ingredient
-        if (substituteIngredient == null) {
+        if (substituteIngredient == null || substituteIngredient.getId().equals(ingredientId)) {
             return new IngredientSubstituteDTO(missingIngredient.getName(), "no substitute", 0.0, "", "");
         }
 
@@ -777,7 +777,8 @@ public class AIService {
             - Never use more than the available quantity.
             - Use the exact ingredientId supplied.
             - category must be Breakfast, Lunch, Dinner, or Snack.
-            - name must contain only English letters and spaces.
+            - Write the recipe name, description, and instructions in the language requested by the user.
+            - The recipe name may contain Unicode letters and marks, numbers, spaces, apostrophes, and hyphens.
             - Keep description under 500 characters.
             - quantity must be greater than 0.
 

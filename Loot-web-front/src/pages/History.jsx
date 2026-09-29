@@ -144,7 +144,7 @@ export default function History() {
               }
             }}
           >
-            <Submit busy={busy || preview.missing.length > 0}>
+            <Submit busy={busy} disabled={preview.missing.length > 0}>
               {t("Confirm and cook", "تأكيد الطبخ")}
             </Submit>
           </form>

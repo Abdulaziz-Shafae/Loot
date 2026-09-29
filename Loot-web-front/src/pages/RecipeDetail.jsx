@@ -96,10 +96,12 @@ export default function RecipeDetail() {
           <p>{recipe.description}</p>
           <span
             className={
-              "badge " + (!detail.missing.length ? "green" : "warning")
+              "badge " + (links.length && !detail.missing.length ? "green" : "warning")
             }
           >
-            {!detail.missing.length
+            {!links.length
+              ? t("Add ingredients first", "أضف المكونات أولاً")
+              : !detail.missing.length
               ? t("Ready to cook", "جاهزة للطبخ")
               : t("A few ingredients to pick up", "بعض المكونات تنقصك")}
           </span>
