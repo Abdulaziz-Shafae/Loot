@@ -81,14 +81,14 @@ public class EmailService {
 
     }
 
-    public void sendVerificationCode(String toEmail, String name, Integer code) {
+    public void sendPasswordResetLink(String toEmail, String name, String resetLink) {
 
-        sendEmail(toEmail, "Loot Password Reset Code",
+        sendEmail(toEmail, "Loot Password Reset",
                 "Hi " + name + ",\n\n" +
                         "We received a request to reset your Loot password.\n\n" +
-                        "Your verification code is:\n\n" +
-                        code + "\n\n" +
-                        "Use this code to reset your password.\n" +
+                        "Use the link below to choose a new password:\n" +
+                        resetLink + "\n\n" +
+                        "This link is valid for 24 hours.\n\n" +
                         "If you did not request a password reset, you can ignore this email.\n\n" +
                         "Loot Team"
         );

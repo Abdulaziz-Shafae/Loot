@@ -45,11 +45,11 @@ public class User {
     private String role = "USER";
 
     @com.fasterxml.jackson.annotation.JsonIgnore
-    private String resetCodeHash;
+    @lombok.ToString.Exclude
+    @Column(name = "reset_code_hash")
+    private String resetTokenHash;
     @com.fasterxml.jackson.annotation.JsonIgnore
     private java.time.Instant resetExpiresAt;
-    @com.fasterxml.jackson.annotation.JsonIgnore
-    private Integer resetAttempts = 0;
     @com.fasterxml.jackson.annotation.JsonIgnore
     private Integer authVersion = 0;
 

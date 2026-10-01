@@ -11,6 +11,9 @@ public interface UserRepository extends JpaRepository <User, Integer> {
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
     @org.springframework.data.jpa.repository.Query("select u from User u where u.email = :email")
     User lockByEmail(String email);
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select u from User u where u.resetTokenHash = :hash")
+    User lockByResetTokenHash(String hash);
 
 
 }

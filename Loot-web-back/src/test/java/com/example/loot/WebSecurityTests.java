@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 @AutoConfigureMockMvc
 class WebSecurityTests {
     @Autowired MockMvc mvc;
@@ -39,10 +40,6 @@ class WebSecurityTests {
     @Autowired CookingHisIngRepository historyIngredients;
     @MockitoBean EmailService email;
     @Autowired com.example.loot.Service.AccountService accounts;
-    private void emailResetEnabled(boolean enabled) {
-        org.springframework.test.util.ReflectionTestUtils.setField(accounts,"emailPasswordResetEnabled",enabled);
-    }
-    @AfterEach void restoreResetDisabled() { emailResetEnabled(false); }
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     org.springframework.security.web.context.HttpSessionSecurityContextRepository contexts;
     User alice,bob,admin;
@@ -54,7 +51,7 @@ class WebSecurityTests {
     }
     User user(String name,String role){var u=new User();u.setName(name);u.setEmail(name.toLowerCase()+UUID.randomUUID()+"@example.test");u.setPhoneNumber("0500000000");u.setPassword(encoder.encode(password));u.setRole(role);return users.save(u);}
     MockHttpSession login(User u) throws Exception {
-        var result=mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",u.getEmail(),"password",password)))).andExpect(status().isOk()).andExpect(jsonPath("$.password").doesNotExist()).andExpect(jsonPath("$.resetCodeHash").doesNotExist()).andReturn();
+        var result=mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",u.getEmail(),"password",password)))).andExpect(status().isOk()).andExpect(jsonPath("$.password").doesNotExist()).andExpect(jsonPath("$.resetTokenHash").doesNotExist()).andReturn();
         return (MockHttpSession)result.getRequest().getSession(false);
     }
     Ingredient ingredient(){var i=new Ingredient();i.setName("Rice");i.setUnit("g");return ingredients.save(i);}
@@ -185,22 +182,6 @@ class WebSecurityTests {
         mvc.perform(post("/api/v1/user/cook/system/"+r.getId()+"/done").session(session).with(csrf())).andExpect(status().isBadRequest());
         assertTrue(history.findCookingHistoryByUserId(alice.getId()).isEmpty());
     }
-    @Test void resetExpiresLimitsAttemptsIsSingleUseAndRevokesSessions() throws Exception {
-        emailResetEnabled(true); // Retain coverage of the paused implementation.
-        var session=login(alice);
-        alice.setResetCodeHash(encoder.encode("123456"));alice.setResetExpiresAt(Instant.now().minusSeconds(1));users.save(alice);
-        String body=json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password","NewKitchen12!"));
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(body)).andExpect(status().isBadRequest());
-        alice.setResetExpiresAt(Instant.now().plusSeconds(600));users.save(alice);
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(body)).andExpect(status().isOk());
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(body)).andExpect(status().isBadRequest());
-        assertNull(users.findById(alice.getId()).orElseThrow().getResetCodeHash());
-        mvc.perform(get("/api/v1/user/me").session(session)).andExpect(status().isUnauthorized());
-        bob.setResetCodeHash(encoder.encode("123456"));bob.setResetExpiresAt(Instant.now().plusSeconds(600));users.save(bob);
-        for(int k=0;k<5;k++)mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",bob.getEmail(),"code","999999","password",password)))).andExpect(status().isBadRequest());
-        assertEquals(5,users.findById(bob.getId()).orElseThrow().getResetAttempts());
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",bob.getEmail(),"code","123456","password",password)))).andExpect(status().isBadRequest());
-    }
     @Test void imageSpoofAndPrivateAiRecipeAreRejected() throws Exception {
         var session=login(alice);
         mvc.perform(multipart("/api/v1/ai/image/to/ingredient").file(new MockMultipartFile("image","fake.png","image/png","not an image".getBytes())).session(session).with(csrf())).andExpect(status().isBadRequest());
@@ -208,22 +189,7 @@ class WebSecurityTests {
         var r=new UserRecipe();r.setName("Private Rice");r.setInstructions("Secret recipe");r.setCategory("Dinner");r.setUserId(bob.getId());recipes.save(r);var i=ingredient();
         mvc.perform(post("/api/v1/ai/ingredient/substitute/"+r.getId()+"/user/"+i.getId()).session(session).with(csrf())).andExpect(status().isBadRequest());
     }
-    @Test void resetEmailIsGenericAndAccountScoped() throws Exception {
-        emailResetEnabled(true);
-        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
-        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content("{\"email\":\"missing@example.test\"}")).andExpect(status().isOk());
-        verify(email).sendVerificationCode(eq(alice.getEmail()),eq(alice.getName()),anyInt());assertNotNull(users.findById(alice.getId()).orElseThrow().getResetCodeHash());assertNull(users.findById(bob.getId()).orElseThrow().getResetCodeHash());
-    }
-    @Test void emailResetDisabledWithoutSendingOrChangingAccount() throws Exception {
-        alice.setResetCodeHash(encoder.encode("123456"));alice.setResetExpiresAt(Instant.now().plusSeconds(600));users.save(alice);
-        String hash=alice.getPassword();
-        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isServiceUnavailable());
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password","NewKitchen12!")))).andExpect(status().isServiceUnavailable());
-        assertEquals(hash,users.findById(alice.getId()).orElseThrow().getPassword());
-        assertEquals(0,users.findById(alice.getId()).orElseThrow().getResetAttempts());
-        verifyNoInteractions(email);
-    }
-    @Test void authenticatedPasswordChangeWorksWhileEmailResetDisabled() throws Exception {
+    @Test void authenticatedPasswordChangeWorksWithoutEmail() throws Exception {
         var session=login(alice);
         mvc.perform(put("/api/v1/user/me/password").session(session).with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("currentPassword",password,"password","NewKitchen12!")))).andExpect(status().isOk());
         mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password",password)))).andExpect(status().isUnauthorized());
@@ -239,5 +205,49 @@ class WebSecurityTests {
         verify(email).sendLowStockEmail(eq(alice.getEmail()),eq(alice.getName()),anyList());
         doThrow(new com.example.loot.Service.EmailDeliveryException("Unavailable")).when(email).sendLowStockEmail(anyString(),anyString(),anyList());
         mvc.perform(post("/api/v1/user/low/email").session(session).with(csrf())).andExpect(status().isServiceUnavailable());
+    }
+    String resetToken() throws Exception {
+        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
+        var link=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(email,atLeastOnce()).sendPasswordResetLink(eq(alice.getEmail()),eq(alice.getName()),link.capture());
+        return link.getValue().substring(link.getValue().indexOf("?token=")+7);
+    }
+    String resetBody(String token) throws Exception { return json.writeValueAsString(Map.of("token",token,"newPassword","NewKitchen12!")); }
+    @Test void resetLinkIsGenericHashedAndReplacesPreviousToken(org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        String token=resetToken();
+        var stored=users.findById(alice.getId()).orElseThrow();
+        assertEquals(43,token.length());
+        assertEquals(java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8))),stored.getResetTokenHash());
+        assertFalse(stored.toString().contains(token));
+        assertTrue(stored.getResetExpiresAt().isAfter(Instant.now().plusSeconds(86300)));
+        assertTrue(stored.getResetExpiresAt().isBefore(Instant.now().plusSeconds(86401)));
+        assertFalse(new com.example.loot.DTO.AuthRequests.Reset(token,"NewKitchen12!").toString().contains(token));
+        String replacement=resetToken();assertNotEquals(token,replacement);
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content("{\"email\":\"unknown@example.test\"}")).andExpect(status().isOk()).andExpect(jsonPath("$.message").value("If an account exists for this email, a password reset link has been sent. Email delivery may take some time."));
+        verify(email,times(2)).sendPasswordResetLink(anyString(),anyString(),anyString());
+        assertNull(users.findById(bob.getId()).orElseThrow().getResetTokenHash());
+        assertFalse(output.getAll().contains(token));
+        assertFalse(output.getAll().contains(replacement));
+    }
+    @Test void resetLinkExpiresIsSingleUseChangesPasswordAndRevokesSessions() throws Exception {
+        var session=login(alice);
+        String token=resetToken();
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody("x".repeat(43)))).andExpect(status().isBadRequest());
+        var stored=users.findById(alice.getId()).orElseThrow();stored.setResetExpiresAt(Instant.now().minusSeconds(1));users.save(stored);
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
+        token=resetToken();
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
+        stored=users.findById(alice.getId()).orElseThrow();assertNull(stored.getResetTokenHash());assertNull(stored.getResetExpiresAt());
+        mvc.perform(get("/api/v1/user/me").session(session)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password",password)))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password","NewKitchen12!")))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password",password)))).andExpect(status().isBadRequest());
+    }
+    @Test void resetEmailFailureClearsTokenWithoutRevealingAccount() throws Exception {
+        doThrow(new com.example.loot.Service.EmailDeliveryException("Provider unavailable")).when(email).sendPasswordResetLink(anyString(),anyString(),anyString());
+        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
+        var stored=users.findById(alice.getId()).orElseThrow();assertNull(stored.getResetTokenHash());assertNull(stored.getResetExpiresAt());
     }
 }

@@ -28,9 +28,8 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="login" element={<Auth mode="login" />} />
         <Route path="signup" element={<Auth mode="signup" />} />
-        {/* Email reset is paused; retain the Auth modes for future restoration. */}
-        <Route path="forgot-password" element={<Navigate to="/login" replace />} />
-        <Route path="reset-password" element={<Navigate to="/login" replace />} />
+        <Route path="forgot-password" element={<Auth mode="forgot" />} />
+        <Route path="reset-password" element={<Auth key="reset" mode="reset" />} />
         <Route element={<Guard />}>
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="pantry" element={<Pantry />} />

@@ -59,7 +59,7 @@ public class AuthController {
     @GetMapping("/me") public User me() { return current.user(); }
     @PutMapping("/me") public User profile(@RequestBody @Valid Profile dto) { var u=current.user(); u.setName(dto.name().trim());u.setPhoneNumber(dto.phoneNumber());return users.save(u); }
     @PutMapping("/me/password") public ApiResponse password(@RequestBody @Valid Password dto,HttpServletRequest req,HttpServletResponse res) { accounts.changePassword(current.user(),dto);return logout(req,res); }
-    @PostMapping("/forgot-password") public ApiResponse forgot(@RequestBody @Valid Forgot dto) { accounts.forgot(dto.email());return new ApiResponse("If the account exists, a reset code will be emailed. The code expires in 10 minutes."); }
-    @PostMapping("/reset-password") public ResponseEntity<ApiResponse> reset(@RequestBody @Valid Reset dto) { boolean ok=accounts.reset(dto);return ResponseEntity.status(ok ? 200 : 400).body(new ApiResponse(ok ? "Password reset. Please sign in." : "Invalid or expired verification code")); }
+    @PostMapping("/forgot-password") public ApiResponse forgot(@RequestBody @Valid Forgot dto) { accounts.forgot(dto.email());return new ApiResponse("If an account exists for this email, a password reset link has been sent. Email delivery may take some time."); }
+    @PostMapping("/reset-password") public ResponseEntity<ApiResponse> reset(@RequestBody @Valid Reset dto) { boolean ok=accounts.reset(dto);return ResponseEntity.status(ok ? 200 : 400).body(new ApiResponse(ok ? "Password reset. Please sign in." : "Invalid or expired reset link")); }
     @GetMapping("/get") public List<User> users() { return users.findAll(); }
 }

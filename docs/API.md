@@ -13,12 +13,12 @@ All paths below begin `/api/v1`. The original route-by-route inventory is in END
 | GET | `/user/me` | None | Current safe User profile |
 | PUT | `/user/me` | `{name,phoneNumber}` | Updates current profile; email remains unchanged |
 | PUT | `/user/me/password` | `{currentPassword,password}` | Changes password; revokes all sessions and outstanding reset code |
-| POST | `/user/forgot-password` | `{email}` | Generic public response; email code, 10-minute expiry |
-| POST | `/user/reset-password` | `{email,code,password}` | Public + CSRF; six-digit code, five attempts, one-time use |
+| POST | `/user/forgot-password` | `{email}` | Generic public response; email link, 24-hour expiry |
+| POST | `/user/reset-password` | `{token,newPassword}` | Public + CSRF; 256-bit token, SHA-256 hash stored, one-time use |
 | GET | `/user/get` | None | ADMIN only; safe User list |
 | DELETE | `/user/delete/{id}` | None | ADMIN only; deletes user and their children atomically; cannot delete active admin account |
 
-The old `/user/update/{id}` is replaced by `/user/me` and `/user/me/password`. Reset email/code path-variable endpoints are replaced with the two JSON-body endpoints, so reset codes no longer appear in URLs. Do not call the old routes.
+The old `/user/update/{id}` is replaced by `/user/me` and `/user/me/password`. Reset email/code path-variable endpoints are replaced with the two JSON-body endpoints, the frontend reset link contains only a random token. Do not call the old routes.
 
 Passwords/reset metadata/authVersion are excluded from JSON. Profile contains id/name/email/phoneNumber/role; IDs are used for resource actions, not displayed unnecessarily. Registration ignores role/id/password-reset fields supplied by clients. New passwords require 8–72 characters, uppercase/lowercase/number/symbol, and at most 72 UTF-8 bytes.
 
@@ -61,6 +61,6 @@ GET `/admin/overview` returns actual counts `{users,ingredients,recipes,cooks}` 
 
 Safe errors use `{message}` with 400/401/403/404/409/413/429/503/500 as appropriate; existing controller field validation strings are also safe and handled by the client. No exception text/SQL/credentials are returned. Error logs record exception class only.
 
-In-memory bounded rate limits: login 10 per email /15 min, reset email 3 per email /15 min, reset verification 10 per email /15 min plus five attempts per code; sensitive POSTs 40 per IP /15 min; AI 30 per IP and 20 per user /15 min. Limits reset on restart and apply per instance. Deploy one instance initially; add a shared limiter/session store before horizontal scaling. Forwarded client IPs are not trusted automatically. A trusted reverse proxy should apply its own per-client limit.
+In-memory bounded rate limits: login 10 per email /15 min, reset email 3 per email /15 min, sensitive POSTs 40 per IP /15 min; AI 30 per IP and 20 per user /15 min. Limits reset on restart and apply per instance. Deploy one instance initially; add a shared limiter/session store before horizontal scaling. Forwarded client IPs are not trusted automatically. A trusted reverse proxy should apply its own per-client limit.
 
 Security configuration follows [Spring's session persistence guidance](https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html) and [CSRF token endpoint guidance](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html). CORS accepts only the explicitly configured origins and credentials; no wildcard origin is allowed.

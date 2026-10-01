@@ -7,9 +7,9 @@ A Spring Boot + React smart pantry application, built from the supplied backend 
 
 ## Implemented
 
-Public landing/about/features, login, registration, email-code reset, dashboard with real counts, pantry card/list CRUD, system/my recipe filters, recipe detail and ingredient editor, cooking/conversion, repeatable cooking history, profile/password settings, all five Loot AI tools, and role-protected admin overview/users/ingredients/system recipes. Supplied branding is used in the header, hero and favicon. Category illustrations and broken-image fallbacks keep cards stable.
+Public landing/about/features, login, registration, email-link reset, dashboard with real counts, pantry card/list CRUD, system/my recipe filters, recipe detail and ingredient editor, cooking/conversion, repeatable cooking history, profile/password settings, all five Loot AI tools, and role-protected admin overview/users/ingredients/system recipes. Supplied branding is used in the header, hero and favicon. Category illustrations and broken-image fallbacks keep cards stable.
 
-The existing Java matching, pantry deduction, history snapshots, conversion, email and AI logic remain server-side. Security adds BCrypt, server-side ownership/role checks, session fixation protection, CSRF, configurable CORS, safe errors, reset expiry/attempts, rate limits and upload checks. Only language and theme preferences are stored locally.
+The existing Java matching, pantry deduction, history snapshots, conversion, email and AI logic remain server-side. Security adds BCrypt, server-side ownership/role checks, session fixation protection, CSRF, configurable CORS, safe errors, reset expiry/single-use tokens, rate limits and upload checks. Only language and theme preferences are stored locally.
 
 Analysis and complete original route inventory: [architecture](docs/ARCHITECTURE.md), [inventory](docs/ENDPOINT-INVENTORY.md). Final contracts and changed routes: [API.md](docs/API.md).
 
@@ -25,7 +25,7 @@ Legacy plaintext passwords are deliberately unsupported. The SQL migration remov
 
 ## Configuration
 
-Email password reset is temporarily disabled because delivery can exceed the code's lifetime. Both reset endpoints remain implemented but return 503 before sending email or modifying reset/password state. The frontend hides the entry point and redirects `/forgot-password` and `/reset-password` to login. To restore later, enable `features.email-password-reset.enabled` in backend configuration and restore the Auth routes/login link. Normal authenticated password changes, signup, welcome emails, and low-stock emails remain enabled. The pantry's Arabic “أرسل النواقص” action sends the low-stock list; recipe-specific missing ingredients remain an on-screen list, not a separate email flow.
+Password reset uses a 256-bit random link token, stored only as a SHA-256 hash and valid for 24 hours. New requests replace previous tokens; successful resets clear the token and invalidate sessions. `PASSWORD_RESET_URL` defaults to `https://loot.up.railway.app/reset-password` and must be a trusted frontend URL. The existing `reset_code_hash` and `reset_expires_at` database columns are reused; the Java property is now `resetTokenHash`. The legacy `reset_attempts` column can remain unused; Hibernate update needs no destructive migration. Old numeric codes cannot be redeemed. Normal authenticated password changes, welcome emails and low-stock emails remain enabled.
 
 Use [.env.example](.env.example) as a checklist and set values in the terminal/IDE environment. Spring Boot does **not** automatically read `.env` files.
 
@@ -44,7 +44,7 @@ Use [.env.example](.env.example) as a checklist and set values in the terminal/I
 | `SPRING_PROFILES_ACTIVE` | Set `prod` in production |
 | `VITE_API_BASE_URL` | Optional public frontend API base; defaults `/api/v1` |
 
-Email uses `POST https://api.brevo.com/v3/smtp/email` with the existing plain-text welcome, password-reset and low-stock messages. Missing configuration does not prevent startup. Welcome delivery failure does not block signup; failed reset delivery clears the reset code; low-stock delivery failures return 503. No automatic send retries are performed to avoid duplicate messages.
+Email uses `POST https://api.brevo.com/v3/smtp/email` with the existing plain-text welcome, password-reset and low-stock messages. Missing configuration does not prevent startup. Welcome delivery failure does not block signup; failed reset delivery clears the reset token; low-stock delivery failures return 503. No automatic send retries are performed to avoid duplicate messages.
 
 Set the three Brevo variables on the Railway backend before deploying. Keep `RESEND_API_KEY` and `RESEND_FROM_EMAIL` until a real Brevo email succeeds, then remove them manually. The old `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, `MAIL_AUTH`, and `MAIL_TLS` variables are also unused. Use a sender verified in your Brevo account. See [Brevo transactional email API](https://developers.brevo.com/reference/send-transac-email).
 Keep frontend and API on the same origin in production using a reverse proxy: `/api` to Spring Boot, all other application routes to Vite's built `index.html`. This fits SameSite=Lax sessions. Serve HTTPS. Configure the actual frontend origin; never `*`. Frontend environment variables must never contain database, mail or OpenAI secrets.

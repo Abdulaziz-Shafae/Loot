@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
 import { Leaf } from "lucide-react";
 import { authApi } from "../api/authApi";
@@ -10,6 +10,10 @@ export default function Auth({ mode }) {
   const { user, login, setUser } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const [token] = useState(() => new URLSearchParams(window.location.search).get("token") || "");
+  useEffect(() => {
+    if (mode === "reset") window.history.replaceState(window.history.state, "", window.location.pathname);
+  }, [mode]);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(null),
     [message, setMessage] = useState("");
@@ -47,12 +51,17 @@ export default function Auth({ mode }) {
         await authApi.forgot(values);
         setMessage(
           t(
-            "If the account exists, a code will arrive by email. It expires in 10 minutes.",
-            "إذا كان الحساب موجوداً، سيصلك رمز بالبريد صالح لعشر دقائق.",
+            "If an account exists for this email, a password reset link has been sent. Email delivery may take some time.",
+            "إذا كان هناك حساب مرتبط بهذا البريد، فقد تم إرسال رابط إعادة تعيين كلمة المرور. قد يستغرق وصول البريد بعض الوقت.",
           ),
         );
       } else {
-        await authApi.reset(values);
+        if (values.password !== values.confirmPassword) {
+          setMessage(t("Passwords do not match.", "كلمتا المرور غير متطابقتين."));
+          return;
+        }
+        await authApi.reset({ token, newPassword: values.password });
+        setUser(null);
         setMessage(
           t(
             "Password updated. Please sign in.",
@@ -111,14 +120,14 @@ export default function Auth({ mode }) {
               maxLength={100}
             />
           )}
-          <Field
+          {mode !== "reset" && <Field
             label={t("Email address", "البريد الإلكتروني")}
             name="email"
             type="email"
             autoComplete="email"
             required
             maxLength={150}
-          />
+          />}
           {mode === "signup" && (
             <Field
               label={t("Phone number", "رقم الجوال")}
@@ -127,17 +136,6 @@ export default function Auth({ mode }) {
               placeholder="05xxxxxxxx"
               pattern="05[0-9]{8}"
               autoComplete="tel"
-              required
-            />
-          )}
-          {mode === "reset" && (
-            <Field
-              label={t("Verification code", "رمز التحقق")}
-              name="code"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              autoComplete="one-time-code"
               required
             />
           )}
@@ -168,25 +166,28 @@ export default function Auth({ mode }) {
               )}
             </>
           )}
+          {mode === "reset" && <Field label={t("Confirm password", "تأكيد كلمة المرور")} name="confirmPassword" type="password" minLength={8} maxLength={72} autoComplete="new-password" required />}
+          {mode === "reset" && !token && <p role="alert">{t("Open the reset link from your email to continue.", "افتح رابط إعادة التعيين من بريدك الإلكتروني للمتابعة.")}</p>}
           {error && <ErrorState error={error} />}{" "}
           {message && (
             <div className="success" role="status">
               {message}
             </div>
           )}
-          <Submit busy={busy}>
+          <Submit busy={busy} disabled={mode === "reset" && !token}>
             {mode === "login"
               ? t("Log in", "تسجيل الدخول")
               : mode === "signup"
                 ? t("Create account", "إنشاء حساب")
                 : mode === "forgot"
-                  ? t("Send reset code", "إرسال رمز التحقق")
+                  ? t("Send reset link", "إرسال رابط إعادة التعيين")
                   : t("Reset password", "تعيين كلمة المرور")}
           </Submit>
         </form>
         <div className="auth-links">
           {mode === "login" ? (
             <>
+              <Link to="/forgot-password">{t("Forgot password?", "نسيت كلمة المرور؟")}</Link>
               <p>
                 {t("New to Loot?", "جديد في لوت؟")}{" "}
                 <Link to="/signup">
@@ -197,11 +198,6 @@ export default function Auth({ mode }) {
           ) : (
             <Link to="/login">
               {t("Back to login", "العودة لتسجيل الدخول")}
-            </Link>
-          )}
-          {mode === "forgot" && (
-            <Link to="/reset-password">
-              {t("I have a verification code", "لدي رمز تحقق")}
             </Link>
           )}
         </div>

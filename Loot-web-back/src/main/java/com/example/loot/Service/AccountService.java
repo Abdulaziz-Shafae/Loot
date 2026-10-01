@@ -17,13 +17,8 @@ import java.util.Locale;
 @Service
 @RequiredArgsConstructor
 public class AccountService {
-    // Temporarily disabled: email delivery can exceed reset-code validity.
-    @org.springframework.beans.factory.annotation.Value("${features.email-password-reset.enabled:false}")
-    private boolean emailPasswordResetEnabled;
-    private void requireEmailPasswordReset() {
-        if (!emailPasswordResetEnabled) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                "Email password reset is temporarily unavailable");
-    }
+    @org.springframework.beans.factory.annotation.Value("${app.password-reset-url:https://loot.up.railway.app/reset-password}")
+    private String passwordResetUrl;
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final EmailService email;
@@ -56,33 +51,33 @@ public class AccountService {
     }
     @Transactional
     public void forgot(String value) {
-        requireEmailPasswordReset();
         String address=normalize(value);
         if (!limits.allow("reset-mail:"+address,3,900)) return;
         User u=users.lockByEmail(address);
         if (u==null) return;
-        int code=random.nextInt(900000)+100000;
-        u.setResetCodeHash(encoder.encode(String.valueOf(code))); u.setResetExpiresAt(Instant.now().plusSeconds(600)); u.setResetAttempts(0);
-        try { email.sendVerificationCode(address,u.getName(),code); }
-        catch(com.example.loot.Service.EmailDeliveryException e) { u.setResetCodeHash(null); u.setResetExpiresAt(null); org.slf4j.LoggerFactory.getLogger(getClass()).warn("Reset email could not be delivered"); }
+        byte[] bytes=new byte[32]; random.nextBytes(bytes);
+        String token=java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        u.setResetTokenHash(tokenHash(token)); u.setResetExpiresAt(Instant.now().plusSeconds(86400));
+        try { email.sendPasswordResetLink(address,u.getName(),passwordResetUrl+"?token="+token); }
+        catch(com.example.loot.Service.EmailDeliveryException e) { clearReset(u); org.slf4j.LoggerFactory.getLogger(getClass()).warn("Reset email could not be delivered"); }
         users.save(u);
     }
     @Transactional
     public boolean reset(Reset dto) {
-        requireEmailPasswordReset();
-        strong(dto.password());
-        String address=normalize(dto.email());
-        if (!limits.allow("reset-verify:"+address,10,900)) return false;
-        User u=users.lockByEmail(address);
-        if (u==null || u.getResetCodeHash()==null || u.getResetExpiresAt()==null || u.getResetExpiresAt().isBefore(Instant.now()) || u.getResetAttempts()>=5) return false;
-        u.setResetAttempts(u.getResetAttempts()+1);
-        if (!encoder.matches(dto.code(),u.getResetCodeHash())) { users.save(u); return false; }
-        u.setPassword(encoder.encode(dto.password())); clearReset(u); u.setAuthVersion(u.getAuthVersion()+1); users.save(u); return true;
+        strong(dto.newPassword());
+        if (dto.token()==null || !dto.token().matches("[A-Za-z0-9_-]{43}")) return false;
+        User u=users.lockByResetTokenHash(tokenHash(dto.token()));
+        if (u==null || u.getResetExpiresAt()==null || !u.getResetExpiresAt().isAfter(Instant.now())) return false;
+        u.setPassword(encoder.encode(dto.newPassword())); clearReset(u); u.setAuthVersion(u.getAuthVersion()+1); users.save(u); return true;
     }
     public void changePassword(User u, Password dto) {
         strong(dto.password());
         if (!encoder.matches(dto.currentPassword(),u.getPassword())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Current password is incorrect");
         u.setPassword(encoder.encode(dto.password())); clearReset(u); u.setAuthVersion(u.getAuthVersion()+1); users.save(u);
     }
-    private void clearReset(User u) { u.setResetCodeHash(null); u.setResetExpiresAt(null); u.setResetAttempts(0); }
+    private String tokenHash(String token) {
+        try { return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8))); }
+        catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException("SHA-256 unavailable"); }
+    }
+    private void clearReset(User u) { u.setResetTokenHash(null); u.setResetExpiresAt(null); }
 }
