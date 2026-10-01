@@ -21,7 +21,11 @@ public class SecurityConfig {
     @Bean HttpSessionCsrfTokenRepository csrfRepository() { return new HttpSessionCsrfTokenRepository(); }
     @Bean SecurityFilterChain security(HttpSecurity http, HttpSessionSecurityContextRepository contexts,
             HttpSessionCsrfTokenRepository csrf, SessionGuard guard, CorsConfigurationSource cors) throws Exception {
-        return http.cors(c -> c.configurationSource(cors)).csrf(c -> c.csrfTokenRepository(csrf))
+        return http.cors(c -> c.configurationSource(cors)).csrf(c -> c.csrfTokenRepository(csrf)
+                // Public email/token flows must work without a browser session cookie.
+                .ignoringRequestMatchers(req -> "POST".equals(req.getMethod()) &&
+                        Set.of("/api/v1/user/forgot-password", "/api/v1/user/reset-password")
+                                .contains(req.getRequestURI())))
             .securityContext(c -> c.securityContextRepository(contexts))
             .requestCache(c -> c.disable())
             .formLogin(c -> c.disable()).httpBasic(c -> c.disable()).logout(c -> c.disable())

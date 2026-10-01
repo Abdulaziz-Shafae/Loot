@@ -40,12 +40,15 @@ class WebSecurityTests {
     @Autowired CookingHisIngRepository historyIngredients;
     @MockitoBean EmailService email;
     @Autowired com.example.loot.Service.AccountService accounts;
+    @Autowired com.example.loot.Security.RateLimits limits;
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     org.springframework.security.web.context.HttpSessionSecurityContextRepository contexts;
     User alice,bob,admin;
     final String password="Kitchen12!";
 
     @BeforeEach void setup() {
+        // Tests share localhost and a Spring context; keep real limits isolated per test.
+        ((Map<?,?>)org.springframework.test.util.ReflectionTestUtils.getField(limits,"buckets")).clear();
         historyIngredients.deleteAll();history.deleteAll();recipeIngredients.deleteAll();recipes.deleteAll();systemIngredients.deleteAll();systems.deleteAll();pantry.deleteAll();ingredients.deleteAll();users.deleteAll();
         alice=user("Alice","USER");bob=user("Bob","USER");admin=user("Admin","ADMIN");
     }
@@ -59,9 +62,16 @@ class WebSecurityTests {
     SystemRecipe system(Ingredient i){var r=new SystemRecipe();r.setName("Rice Bowl");r.setDescription("");r.setInstructions("Cook rice until tender.");r.setCategory("Dinner");r.setImageUrl("https://example.test/rice.png");r=systems.save(r);var link=new SystemRecIng();link.setSystemRecipeId(r.getId());link.setIngredientId(i.getId());link.setRequiredQuantity(100.0);systemIngredients.save(link);return r;}
 
     @Test void anonymousCsrfAndRoleBoundaries() throws Exception {
+        // Only the exact POST reset endpoints are exempt, including for authenticated callers.
+        mvc.perform(post("/api/v1/user/add").contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(put("/api/v1/user/reset-password").contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/user/reset-password/extra").contentType("application/json").content("{}")).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/pantry/get")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/user/login").contentType("application/json").content("{}")).andExpect(status().isForbidden());
         var session=login(alice);
+        mvc.perform(put("/api/v1/user/me/password").session(session).contentType("application/json").content("{}")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/user/low/email").session(session)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/user/logout").session(session)).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/admin/overview").session(session)).andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/system/add").session(session).with(csrf()).contentType("application/json").content("{}")).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/user/get").session(session)).andExpect(status().isForbidden());
@@ -207,7 +217,7 @@ class WebSecurityTests {
         mvc.perform(post("/api/v1/user/low/email").session(session).with(csrf())).andExpect(status().isServiceUnavailable());
     }
     String resetToken() throws Exception {
-        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/forgot-password").contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
         var link=org.mockito.ArgumentCaptor.forClass(String.class);
         verify(email,atLeastOnce()).sendPasswordResetLink(eq(alice.getEmail()),eq(alice.getName()),link.capture());
         return link.getValue().substring(link.getValue().indexOf("?token=")+7);
@@ -223,8 +233,8 @@ class WebSecurityTests {
         assertTrue(stored.getResetExpiresAt().isBefore(Instant.now().plusSeconds(86401)));
         assertFalse(new com.example.loot.DTO.AuthRequests.Reset(token,"NewKitchen12!").toString().contains(token));
         String replacement=resetToken();assertNotEquals(token,replacement);
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
-        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content("{\"email\":\"unknown@example.test\"}")).andExpect(status().isOk()).andExpect(jsonPath("$.message").value("If an account exists for this email, a password reset link has been sent. Email delivery may take some time."));
+        mvc.perform(post("/api/v1/user/reset-password").contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/forgot-password").contentType("application/json").content("{\"email\":\"unknown@example.test\"}")).andExpect(status().isOk()).andExpect(jsonPath("$.message").value("If an account exists for this email, a password reset link has been sent. Email delivery may take some time."));
         verify(email,times(2)).sendPasswordResetLink(anyString(),anyString(),anyString());
         assertNull(users.findById(bob.getId()).orElseThrow().getResetTokenHash());
         assertFalse(output.getAll().contains(token));
@@ -233,21 +243,21 @@ class WebSecurityTests {
     @Test void resetLinkExpiresIsSingleUseChangesPasswordAndRevokesSessions() throws Exception {
         var session=login(alice);
         String token=resetToken();
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody("x".repeat(43)))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/reset-password").contentType("application/json").content(resetBody("x".repeat(43)))).andExpect(status().isBadRequest());
         var stored=users.findById(alice.getId()).orElseThrow();stored.setResetExpiresAt(Instant.now().minusSeconds(1));users.save(stored);
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/reset-password").contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
         token=resetToken();
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isOk());
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/reset-password").contentType("application/json").content(resetBody(token))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/reset-password").contentType("application/json").content(resetBody(token))).andExpect(status().isBadRequest());
         stored=users.findById(alice.getId()).orElseThrow();assertNull(stored.getResetTokenHash());assertNull(stored.getResetExpiresAt());
         mvc.perform(get("/api/v1/user/me").session(session)).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password",password)))).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password","NewKitchen12!")))).andExpect(status().isOk());
-        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password",password)))).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/user/reset-password").contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password",password)))).andExpect(status().isBadRequest());
     }
     @Test void resetEmailFailureClearsTokenWithoutRevealingAccount() throws Exception {
         doThrow(new com.example.loot.Service.EmailDeliveryException("Provider unavailable")).when(email).sendPasswordResetLink(anyString(),anyString(),anyString());
-        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/forgot-password").contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
         var stored=users.findById(alice.getId()).orElseThrow();assertNull(stored.getResetTokenHash());assertNull(stored.getResetExpiresAt());
     }
 }
