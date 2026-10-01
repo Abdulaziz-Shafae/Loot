@@ -19,17 +19,20 @@ public class EmailService {
     private final RestClient client;
     private final String apiKey;
     private final String from;
+    private final String fromName;
 
     @Autowired
-    public EmailService(@Value("${resend.api.key:}") String apiKey,
-                        @Value("${resend.from.email:}") String from) {
-        this(defaultClient(), apiKey, from);
+    public EmailService(@Value("${brevo.api.key:}") String apiKey,
+                        @Value("${brevo.from.email:}") String from,
+                        @Value("${brevo.from.name:Loot}") String fromName) {
+        this(defaultClient(), apiKey, from, fromName);
     }
 
-    EmailService(RestClient client, String apiKey, String from) {
+    EmailService(RestClient client, String apiKey, String from, String fromName) {
         this.client = client;
         this.apiKey = apiKey;
         this.from = from;
+        this.fromName = fromName.isBlank() ? "Loot" : fromName;
     }
 
     private static RestClient defaultClient() {
@@ -44,12 +47,13 @@ public class EmailService {
             throw new EmailDeliveryException("Email delivery is not configured");
         }
         try {
-            var response = client.post().uri("https://api.resend.com/emails")
-                    .headers(headers -> headers.setBearerAuth(apiKey))
+            var response = client.post().uri("https://api.brevo.com/v3/smtp/email")
+                    .header("api-key", apiKey)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(Map.of("from", from, "to", List.of(to), "subject", subject, "text", body))
-                    .retrieve().body(ResendResponse.class);
-            if (response == null || response.id() == null || response.id().isBlank()) {
+                    .body(Map.of("sender", Map.of("name", fromName, "email", from),
+                            "to", List.of(Map.of("email", to)), "subject", subject, "textContent", body))
+                    .retrieve().body(BrevoResponse.class);
+            if (response == null || response.messageId() == null || response.messageId().isBlank()) {
                 throw new EmailDeliveryException("Email provider returned no message ID");
             }
         } catch (RestClientResponseException e) {
@@ -62,7 +66,7 @@ public class EmailService {
         }
     }
 
-    private record ResendResponse(String id) {}
+    private record BrevoResponse(String messageId) {}
 
     public void sendWelcomeEmail(String toEmail, String name) {
 

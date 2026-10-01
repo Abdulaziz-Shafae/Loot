@@ -15,16 +15,16 @@ class EmailServiceTests {
     @Test void sendsPlainTextOverHttps() {
         var builder = RestClient.builder();
         var server = MockRestServiceServer.bindTo(builder).build();
-        var service = new EmailService(builder.build(), "test-key", "Loot <loot@example.test>");
-        server.expect(requestTo("https://api.resend.com/emails"))
+        var service = new EmailService(builder.build(), "test-key", "loot@example.test", "Loot");
+        server.expect(requestTo("https://api.brevo.com/v3/smtp/email"))
                 .andExpect(method(HttpMethod.POST))
-                .andExpect(header("Authorization", "Bearer test-key"))
+                .andExpect(header("api-key", "test-key"))
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
-                    {"from":"Loot <loot@example.test>","to":["qa@example.test"],
-                     "subject":"Test","text":"مرحبا\nHello"}
+                    {"sender":{"name":"Loot","email":"loot@example.test"},"to":[{"email":"qa@example.test"}],
+                     "subject":"Test","textContent":"مرحبا\nHello"}
                     """.replace("مرحبا\nHello", "مرحبا\\nHello")))
-                .andRespond(withSuccess("{\"id\":\"email-test-id\"}", MediaType.APPLICATION_JSON));
+                .andRespond(withStatus(HttpStatus.CREATED).body("{\"messageId\":\"email-test-id\"}").contentType(MediaType.APPLICATION_JSON));
         service.sendEmail("qa@example.test", "Test", "مرحبا\nHello");
         server.verify();
     }
@@ -33,7 +33,7 @@ class EmailServiceTests {
         var builder = RestClient.builder();
         var server = MockRestServiceServer.bindTo(builder).build();
         for (String[] config : new String[][] {{"", "sender@example.test"}, {"test-key", ""}}) {
-            var service = assertDoesNotThrow(() -> new EmailService(builder.build(), config[0], config[1]));
+            var service = assertDoesNotThrow(() -> new EmailService(builder.build(), config[0], config[1], "Loot"));
             assertThrows(EmailDeliveryException.class, () -> service.sendEmail("qa@example.test", "Test", "Body"));
         }
         server.verify();
@@ -44,9 +44,9 @@ class EmailServiceTests {
                 HttpStatus.TOO_MANY_REQUESTS, HttpStatus.INTERNAL_SERVER_ERROR}) {
             var builder = RestClient.builder();
             var server = MockRestServiceServer.bindTo(builder).build();
-            server.expect(requestTo("https://api.resend.com/emails"))
+            server.expect(requestTo("https://api.brevo.com/v3/smtp/email"))
                     .andRespond(withStatus(status).body("secret-provider-detail"));
-            var service = new EmailService(builder.build(), "test-key", "sender@example.test");
+            var service = new EmailService(builder.build(), "test-key", "sender@example.test", "Loot");
             var error = assertThrows(EmailDeliveryException.class, () -> service.sendEmail("qa@example.test", "Test", "Body"));
             assertFalse(error.toString().contains("secret-provider-detail"));
             assertNull(error.getCause());
@@ -57,9 +57,9 @@ class EmailServiceTests {
     @Test void networkFailureAndMissingReceiptAreNotSuccess() {
         var builder = RestClient.builder();
         var server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo("https://api.resend.com/emails")).andRespond(withException(new IOException("secret-detail")));
-        server.expect(requestTo("https://api.resend.com/emails")).andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
-        var service = new EmailService(builder.build(), "test-key", "sender@example.test");
+        server.expect(requestTo("https://api.brevo.com/v3/smtp/email")).andRespond(withException(new IOException("secret-detail")));
+        server.expect(requestTo("https://api.brevo.com/v3/smtp/email")).andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        var service = new EmailService(builder.build(), "test-key", "sender@example.test", "Loot");
         assertThrows(EmailDeliveryException.class, () -> service.sendEmail("qa@example.test", "Test", "Body"));
         assertThrows(EmailDeliveryException.class, () -> service.sendEmail("qa@example.test", "Test", "Body"));
         server.verify();
