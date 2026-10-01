@@ -17,6 +17,13 @@ import java.util.Locale;
 @Service
 @RequiredArgsConstructor
 public class AccountService {
+    // Temporarily disabled: email delivery can exceed reset-code validity.
+    @org.springframework.beans.factory.annotation.Value("${features.email-password-reset.enabled:false}")
+    private boolean emailPasswordResetEnabled;
+    private void requireEmailPasswordReset() {
+        if (!emailPasswordResetEnabled) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Email password reset is temporarily unavailable");
+    }
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final EmailService email;
@@ -49,6 +56,7 @@ public class AccountService {
     }
     @Transactional
     public void forgot(String value) {
+        requireEmailPasswordReset();
         String address=normalize(value);
         if (!limits.allow("reset-mail:"+address,3,900)) return;
         User u=users.lockByEmail(address);
@@ -61,6 +69,7 @@ public class AccountService {
     }
     @Transactional
     public boolean reset(Reset dto) {
+        requireEmailPasswordReset();
         strong(dto.password());
         String address=normalize(dto.email());
         if (!limits.allow("reset-verify:"+address,10,900)) return false;

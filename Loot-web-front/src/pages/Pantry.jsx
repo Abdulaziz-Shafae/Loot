@@ -86,9 +86,11 @@ export default function Pantry() {
           onClick={async () => {
             setBusy(true);
             try {
-              await pantryApi.email();
-              toast(
-                t("Low-stock email requested", "تم طلب رسالة المخزون المنخفض"),
+              const result = await pantryApi.email();
+                toast(
+                result?.message === "No low stock ingredients"
+                  ? t("No low-stock ingredients to send.", "لا توجد مكونات منخفضة المخزون لإرسالها.")
+                  : t("Your missing ingredients list has been sent. Email delivery may take a few minutes.", "تم إرسال قائمة المكونات الناقصة. قد يستغرق وصول البريد الإلكتروني بضع دقائق."),
               );
             } catch (e) {
               setError(e);

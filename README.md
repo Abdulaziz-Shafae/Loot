@@ -25,6 +25,8 @@ Legacy plaintext passwords are deliberately unsupported. The SQL migration remov
 
 ## Configuration
 
+Email password reset is temporarily disabled because delivery can exceed the code's lifetime. Both reset endpoints remain implemented but return 503 before sending email or modifying reset/password state. The frontend hides the entry point and redirects `/forgot-password` and `/reset-password` to login. To restore later, enable `features.email-password-reset.enabled` in backend configuration and restore the Auth routes/login link. Normal authenticated password changes, signup, welcome emails, and low-stock emails remain enabled. The pantry's Arabic “أرسل النواقص” action sends the low-stock list; recipe-specific missing ingredients remain an on-screen list, not a separate email flow.
+
 Use [.env.example](.env.example) as a checklist and set values in the terminal/IDE environment. Spring Boot does **not** automatically read `.env` files.
 
 | Variable | Purpose |

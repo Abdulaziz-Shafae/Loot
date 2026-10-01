@@ -187,9 +187,6 @@ export default function Auth({ mode }) {
         <div className="auth-links">
           {mode === "login" ? (
             <>
-              <Link to="/forgot-password">
-                {t("Forgot password?", "نسيت كلمة المرور؟")}
-              </Link>
               <p>
                 {t("New to Loot?", "جديد في لوت؟")}{" "}
                 <Link to="/signup">

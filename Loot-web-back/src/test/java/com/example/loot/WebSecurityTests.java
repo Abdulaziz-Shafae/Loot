@@ -38,6 +38,11 @@ class WebSecurityTests {
     @Autowired CookingHistoryRepository history;
     @Autowired CookingHisIngRepository historyIngredients;
     @MockitoBean EmailService email;
+    @Autowired com.example.loot.Service.AccountService accounts;
+    private void emailResetEnabled(boolean enabled) {
+        org.springframework.test.util.ReflectionTestUtils.setField(accounts,"emailPasswordResetEnabled",enabled);
+    }
+    @AfterEach void restoreResetDisabled() { emailResetEnabled(false); }
     @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
     org.springframework.security.web.context.HttpSessionSecurityContextRepository contexts;
     User alice,bob,admin;
@@ -81,6 +86,7 @@ class WebSecurityTests {
         String address="new"+UUID.randomUUID()+"@example.test";
         mvc.perform(post("/api/v1/user/add").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("id",alice.getId(),"name","New User","email",address,"password",password,"phoneNumber","0500000000","role","ADMIN")))).andExpect(status().isOk());
         var u=users.findUserByEmail(address);assertEquals("USER",u.getRole());assertNotEquals(alice.getId(),u.getId());assertNotEquals(password,u.getPassword());assertTrue(encoder.matches(password,u.getPassword()));
+        verify(email).sendWelcomeEmail(address,"New User");
     }
     @Test void signupAuthenticatesRotatesSessionAndRenewsCsrf() throws Exception {
         var tokenResponse=mvc.perform(get("/api/v1/user/csrf")).andReturn();
@@ -180,6 +186,7 @@ class WebSecurityTests {
         assertTrue(history.findCookingHistoryByUserId(alice.getId()).isEmpty());
     }
     @Test void resetExpiresLimitsAttemptsIsSingleUseAndRevokesSessions() throws Exception {
+        emailResetEnabled(true); // Retain coverage of the paused implementation.
         var session=login(alice);
         alice.setResetCodeHash(encoder.encode("123456"));alice.setResetExpiresAt(Instant.now().minusSeconds(1));users.save(alice);
         String body=json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password","NewKitchen12!"));
@@ -202,8 +209,35 @@ class WebSecurityTests {
         mvc.perform(post("/api/v1/ai/ingredient/substitute/"+r.getId()+"/user/"+i.getId()).session(session).with(csrf())).andExpect(status().isBadRequest());
     }
     @Test void resetEmailIsGenericAndAccountScoped() throws Exception {
+        emailResetEnabled(true);
         mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isOk());
         mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content("{\"email\":\"missing@example.test\"}")).andExpect(status().isOk());
         verify(email).sendVerificationCode(eq(alice.getEmail()),eq(alice.getName()),anyInt());assertNotNull(users.findById(alice.getId()).orElseThrow().getResetCodeHash());assertNull(users.findById(bob.getId()).orElseThrow().getResetCodeHash());
+    }
+    @Test void emailResetDisabledWithoutSendingOrChangingAccount() throws Exception {
+        alice.setResetCodeHash(encoder.encode("123456"));alice.setResetExpiresAt(Instant.now().plusSeconds(600));users.save(alice);
+        String hash=alice.getPassword();
+        mvc.perform(post("/api/v1/user/forgot-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail())))).andExpect(status().isServiceUnavailable());
+        mvc.perform(post("/api/v1/user/reset-password").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"code","123456","password","NewKitchen12!")))).andExpect(status().isServiceUnavailable());
+        assertEquals(hash,users.findById(alice.getId()).orElseThrow().getPassword());
+        assertEquals(0,users.findById(alice.getId()).orElseThrow().getResetAttempts());
+        verifyNoInteractions(email);
+    }
+    @Test void authenticatedPasswordChangeWorksWhileEmailResetDisabled() throws Exception {
+        var session=login(alice);
+        mvc.perform(put("/api/v1/user/me/password").session(session).with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("currentPassword",password,"password","NewKitchen12!")))).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password",password)))).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/user/login").with(csrf()).contentType("application/json").content(json.writeValueAsString(Map.of("email",alice.getEmail(),"password","NewKitchen12!")))).andExpect(status().isOk());
+        verifyNoInteractions(email);
+    }
+    @Test void lowStockEmailReportsEmptySuccessAndProviderFailure() throws Exception {
+        var session=login(alice);
+        mvc.perform(post("/api/v1/user/low/email").session(session).with(csrf())).andExpect(status().isOk()).andExpect(jsonPath("$.message").value("No low stock ingredients"));
+        verifyNoInteractions(email);
+        stock(alice,ingredient(),1);
+        mvc.perform(post("/api/v1/user/low/email").session(session).with(csrf())).andExpect(status().isOk());
+        verify(email).sendLowStockEmail(eq(alice.getEmail()),eq(alice.getName()),anyList());
+        doThrow(new com.example.loot.Service.EmailDeliveryException("Unavailable")).when(email).sendLowStockEmail(anyString(),anyString(),anyList());
+        mvc.perform(post("/api/v1/user/low/email").session(session).with(csrf())).andExpect(status().isServiceUnavailable());
     }
 }
